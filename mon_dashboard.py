@@ -31,7 +31,10 @@ def load_data():
     def calc_bus(row):
         if pd.isnull(row['Date_Prev']): return None
         d1, d2 = row['Date_Prev'].date(), row['Date'].date()
-        return int(np.busday_count(d1, d2)) if d1 < d2 else 0
+        try:
+            return int(np.busday_count(d1, d2)) if d1 < d2 else 0
+        except:
+            return 0
 
     df['Ecart_Ouvres'] = df.apply(calc_bus, axis=1)
     df['Is_Repeat'] = ((df['Ecart_Ouvres'] >= 0) & (df['Ecart_Ouvres'] <= 22)).astype(int)
@@ -71,85 +74,10 @@ if df_raw is not None:
 
         st.divider()
 
-       # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL OPTIMISÉ ---
-st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
+        # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL OPTIMISÉ ---
+        st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
 
-# 1. Préparation des données
-df_f['Mois_Num'] = df_f['Date'].dt.month
-noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
-             7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
-
-evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
-evol = evol.reset_index()
-evol['Mois'] = evol['Mois_Num'].map(noms_mois)
-
-# 2. Création de la figure
-fig, ax = plt.subplots(figsize=(12, 4.5)) # Un peu plus haut pour les labels
-sns.set_theme(style="whitegrid")
-
-# Tracé de la ligne
-sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
-             linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', markersize=8, ax=ax)
-
-# 3. Ajout des Data Labels (Chiffres au-dessus des points)
-for i, row in evol.iterrows():
-    ax.text(i, row['Is_Repeat'] + 1.5, f"{row['Is_Repeat']:.1f}%", 
-            ha='center', va='bottom', fontsize=10, fontweight='bold', color='#333333')
-
-# 4. Esthétique finale
-ax.set_xlabel(None)
-ax.set_ylabel("Taux (%)", fontsize=10, fontweight='bold')
-ax.set_ylim(0, evol['Is_Repeat'].max() + 8) # On laisse de la place pour les labels
-sns.despine(left=True, bottom=True)
-
-# Affichage propre
-st.pyplot(fig)
-
-        # Création de la figure Matplotlib
-        fig, ax = plt.subplots(figsize=(12, 4))
-        sns.set_theme(style="whitegrid")
-        
-        sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
-                     linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', ax=ax)
-        
-        # Esthétique professionnelle
-        ax.set_title("Taux de Repeat par Mois (%)", fontsize=14, pad=15, fontweight='bold')
-        ax.set_xlabel(None)
-        ax.set_ylabel("Taux (%)", fontsize=10)
-        ax.set_ylim(0, max(evol['Is_Repeat'].max() + 5, 20)) # Donne de l'air en haut
-        sns.despine(left=True, bottom=True)
-        
-        # Affichage dans Streamlit
-        st.pyplot(fig)
-
-        # --- SECTIONS IMPACTS ---
-        st.divider()
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            st.subheader("👨‍🔧 Top 10 Techniciens (Impact Repeat)")
-            top_tech = df_f[df_f['Is_Repeat'] == 1].groupby('Technicien').size().sort_values(ascending=False).head(10)
-            st.bar_chart(top_tech, color="#004a99")
-
-        with col_right:
-            st.subheader("📁 Top 10 Machines (SN) à surveiller")
-            top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().sort_values(ascending=False).head(10)
-            st.bar_chart(top_sn, color="#ff4b4b")
-
-        # --- TABLEAU DÉTAILLÉ ---
-        st.divider()
-        st.subheader("📋 Liste des Impacts Repeat (Détails)")
-        list_rep = df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']]
-        st.dataframe(list_rep, use_container_width=True)
-
-        # Bouton Export
-        st.sidebar.markdown("---")
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_f.to_excel(writer, index=False)
-        st.sidebar.download_button("📥 Télécharger Rapport Complet", buffer.getvalue(), "Arkeos_Performance.xlsx")
-
-    else:
-        st.warning("Aucune donnée pour cette sélection.")
-else:
-    st.error("Fichier CSV introuvable. Vérifiez le nom du fichier.")
+        # 1. Préparation des données
+        df_f['Mois_Num'] = df_f['Date'].dt.month
+        noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
+                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov',
