@@ -52,7 +52,7 @@ if df_raw is not None:
     df_f = df_raw[(df_raw['Date'].dt.year.isin(sel_years)) & (df_raw['Technicien'].isin(sel_techs))]
 
     # --- PAGE PRINCIPALE ---
-    st.title("📊 Arkeos Support Performance")
+    st.title("📊 Arkeos Technical Support Dashboard")
 
     if not df_f.empty:
         # Calculs KPI
