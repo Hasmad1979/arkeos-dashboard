@@ -55,7 +55,7 @@ def load_data(file_path):
         return None
 
 # --- EXECUTION ---
-path = os.path.join(os.path.expanduser("~"), "Desktop", "data_dynamics_brute.csv.csv")
+path = "data_dynamics_brute.csv.csv"
 df_raw = load_data(path)
 
 if df_raw is not None:
