@@ -43,18 +43,40 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None:
+    # Dictionnaire des mois pour le filtrage et l'affichage
+    noms_mois = {1:'Janvier', 2:'Février', 3:'Mars', 4:'Avril', 5:'Mai', 6:'Juin', 
+                 7:'Juillet', 8:'Août', 9:'Septembre', 10:'Octobre', 11:'Novembre', 12:'Décembre'}
+
     # --- SIDEBAR ---
     if os.path.exists("ark.png"):
         st.sidebar.image("ark.png", width=150)
     
     st.sidebar.title("🎮 Filtres")
+    
+    # Filtre Années
     years = sorted(df_raw['Date'].dt.year.unique(), reverse=True)
     sel_years = st.sidebar.multiselect("Années", years, default=years)
     
+    # NOUVEAU : Filtre Mois
+    df_raw['Mois_Num'] = df_raw['Date'].dt.month
+    df_raw['Mois_Nom'] = df_raw['Mois_Num'].map(noms_mois)
+    
+    # On trie les mois disponibles par ordre chronologique pour le filtre
+    available_months = sorted(df_raw['Mois_Num'].unique())
+    month_options = [noms_mois[m] for m in available_months]
+    
+    sel_months_names = st.sidebar.multiselect("Mois", month_options, default=month_options)
+    
+    # Filtre Techniciens
     techs = sorted(df_raw['Technicien'].unique().tolist())
     sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
     
-    df_f = df_raw[(df_raw['Date'].dt.year.isin(sel_years)) & (df_raw['Technicien'].isin(sel_techs))].copy()
+    # Application des filtres
+    df_f = df_raw[
+        (df_raw['Date'].dt.year.isin(sel_years)) & 
+        (df_raw['Mois_Nom'].isin(sel_months_names)) &
+        (df_raw['Technicien'].isin(sel_techs))
+    ].copy()
 
     # --- PAGE PRINCIPALE ---
     st.title("📊 Arkeos Technical Support Dashboard")
@@ -77,17 +99,13 @@ if df_raw is not None:
         # --- 2. LE GRAPHIQUE ÉVOLUTION ---
         st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
         
-        df_f['Mois_Num'] = df_f['Date'].dt.month
-        noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
-                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
-        
         evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
         evol = evol.reset_index()
-        evol['Mois'] = evol['Mois_Num'].map(noms_mois)
+        evol['Mois_Label'] = evol['Mois_Num'].map(lambda x: noms_mois[x][:4] + ".") # Version courte pour le graph
 
         fig, ax = plt.subplots(figsize=(12, 4.5)) 
         sns.set_theme(style="whitegrid")
-        sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
+        sns.lineplot(x='Mois_Label', y='Is_Repeat', data=evol, marker='o', 
                      linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', markersize=8, ax=ax)
 
         for i, row in evol.iterrows():
@@ -96,7 +114,7 @@ if df_raw is not None:
 
         ax.set_xlabel(None)
         ax.set_ylabel("Taux (%)", fontweight='bold')
-        ax.set_ylim(0, evol['Is_Repeat'].max() + 10)
+        ax.set_ylim(0, max(evol['Is_Repeat'].max() + 10, 20))
         sns.despine(left=True, bottom=True)
         st.pyplot(fig)
 
@@ -110,7 +128,7 @@ if df_raw is not None:
             if not top_tech.empty:
                 st.bar_chart(top_tech, color="#004a99")
             else:
-                st.info("Aucun repeat trouvé pour ces filtres.")
+                st.info("Aucun repeat pour cette sélection.")
 
         with col_right:
             st.subheader("📁 Top 10 Machines (SN) à surveiller")
@@ -118,7 +136,7 @@ if df_raw is not None:
             if not top_sn.empty:
                 st.bar_chart(top_sn, color="#ff4b4b")
             else:
-                st.info("Aucune machine critique identifiée.")
+                st.info("Aucune machine critique.")
 
         # --- 4. TABLEAU DÉTAILLÉ ---
         st.divider()
@@ -126,7 +144,7 @@ if df_raw is not None:
         list_rep = df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']]
         st.dataframe(list_rep, use_container_width=True)
 
-        # --- 5. BOUTON EXPORT (SIDEBAR) ---
+        # --- 5. BOUTON EXPORT ---
         st.sidebar.markdown("---")
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
@@ -134,6 +152,6 @@ if df_raw is not None:
         st.sidebar.download_button("📥 Télécharger Rapport Complet", buffer.getvalue(), "Arkeos_Performance.xlsx")
 
     else:
-        st.warning("Aucune donnée pour cette sélection.")
+        st.warning("Aucune donnée pour cette sélection de mois/années/techniciens.")
 else:
-    st.error("Fichier CSV introuvable. Vérifiez le nom du fichier.")
+    st.error("Fichier CSV introuvable.")
