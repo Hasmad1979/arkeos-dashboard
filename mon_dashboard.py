@@ -7,10 +7,11 @@ import io
 # 1. Configuration
 st.set_page_config(page_title="Arkeos Performance Dashboard", layout="wide")
 
-# Style CSS pour les métriques
+# Style CSS
 st.markdown("""
     <style>
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #004a99; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    div[data-testid="stSidebar"] { background-color: #004a99; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -20,7 +21,16 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     df = pd.read_csv(file_name)
-    df = df.rename(columns={"Numéro de l'incident": "ID", "Actifs du client": "SN", "Owner": "Technicien", "Créé le": "Date"})
+    
+    # Mapping des colonnes (Ajustez 'Symptôme' si le nom diffère dans votre CSV)
+    df = df.rename(columns={
+        "Numéro de l'incident": "ID", 
+        "Actifs du client": "SN", 
+        "Owner": "Technicien", 
+        "Créé le": "Date",
+        "Symptôme": "Panne" # Assurez-vous que cette colonne existe
+    })
+    
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
     
@@ -59,26 +69,25 @@ if df_raw is not None:
         total_int = len(df_f)
         total_rep = df_f['Is_Repeat'].sum()
         repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
-        ftr_rate = 100 - repeat_rate # KPI First Time Resolution
+        ftr_rate = 100 - repeat_rate
 
-        # Affichage des 4 KPI
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("Repeats", f"{total_rep:,}")
-        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%", delta=f"{repeat_rate:.1f}%", delta_color="inverse")
-        c4.metric("FTR (First Time Resolution)", f"{ftr_rate:.1f}%", delta=f"{ftr_rate:.1f}%")
+        c2.metric("Total Repeats", f"{total_rep:,}")
+        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%", delta_color="inverse")
+        c4.metric("FTR %", f"{ftr_rate:.1f}%")
 
         st.divider()
 
-        # Graphique Evolution
-        st.subheader("📈 Évolution Mensuelle")
+        # Évolution
+        st.subheader("📈 Évolution du Taux de Repeat")
         df_f['Mois_Num'] = df_f['Date'].dt.month
         df_f['Mois'] = df_f['Date'].dt.strftime('%B')
         evol = df_f.groupby(['Mois_Num', 'Mois'])['Is_Repeat'].mean() * 100
         evol = evol.reset_index().sort_values('Mois_Num')
         st.line_chart(evol.set_index('Mois')['Is_Repeat'], color="#004a99")
 
-        # --- SECTIONS IMPACTS ---
+        # --- ANALYSE DES PANNES & TECHS ---
         st.divider()
         col_left, col_right = st.columns(2)
         
@@ -88,25 +97,14 @@ if df_raw is not None:
             st.bar_chart(top_tech, color="#004a99")
 
         with col_right:
-            st.subheader("📁 Top 10 Machines (SN) à surveiller")
-            top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().sort_values(ascending=False).head(10)
-            st.bar_chart(top_sn, color="#ff4b4b")
+            # Nouveau : Analyse par type de panne si la colonne existe
+            if 'Panne' in df_f.columns:
+                st.subheader("🔧 Repeats par Type de Panne")
+                top_pannes = df_f[df_f['Is_Repeat'] == 1].groupby('Panne').size().sort_values(ascending=False).head(10)
+                st.bar_chart(top_pannes, color="#2ecc71")
+            else:
+                st.subheader("📁 Top 10 Machines (SN) Critiques")
+                top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().sort_values(ascending=False).head(10)
+                st.bar_chart(top_sn, color="#ff4b4b")
 
-        # --- TABLEAU DÉTAILLÉ ---
-        st.divider()
-        st.subheader("📋 Liste des Impacts Repeat (Détails)")
-        # On montre les incidents qui sont des repeats
-        list_rep = df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']]
-        st.dataframe(list_rep, use_container_width=True)
-
-        # Bouton Export
-        st.sidebar.markdown("---")
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_f.to_excel(writer, index=False)
-        st.sidebar.download_button("📥 Télécharger Rapport Complet", buffer.getvalue(), "Arkeos_Performance.xlsx")
-
-    else:
-        st.warning("Aucune donnée pour cette sélection.")
-else:
-    st.error("Fichier CSV introuvable sur GitHub.")
+        # --- D
