@@ -60,7 +60,7 @@ if df_raw is not None:
     st.title("📊 Arkeos Technical Support Dashboard")
 
     if not df_f.empty:
-        # Calculs KPI
+        # --- 1. LES KPI ---
         total_int = len(df_f)
         total_rep = df_f['Is_Repeat'].sum()
         repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
@@ -74,10 +74,66 @@ if df_raw is not None:
 
         st.divider()
 
-        # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL OPTIMISÉ ---
+        # --- 2. LE GRAPHIQUE ÉVOLUTION ---
         st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
-
-        # 1. Préparation des données
+        
         df_f['Mois_Num'] = df_f['Date'].dt.month
         noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
                      7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
+        
+        evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
+        evol = evol.reset_index()
+        evol['Mois'] = evol['Mois_Num'].map(noms_mois)
+
+        fig, ax = plt.subplots(figsize=(12, 4.5)) 
+        sns.set_theme(style="whitegrid")
+        sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
+                     linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', markersize=8, ax=ax)
+
+        for i, row in evol.iterrows():
+            ax.text(i, row['Is_Repeat'] + 1.5, f"{row['Is_Repeat']:.1f}%", 
+                    ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+        ax.set_xlabel(None)
+        ax.set_ylabel("Taux (%)", fontweight='bold')
+        ax.set_ylim(0, evol['Is_Repeat'].max() + 10)
+        sns.despine(left=True, bottom=True)
+        st.pyplot(fig)
+
+        # --- 3. SECTIONS IMPACTS (TOP 10) ---
+        st.divider()
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            st.subheader("👨‍🔧 Top 10 Techniciens (Impact Repeat)")
+            top_tech = df_f[df_f['Is_Repeat'] == 1].groupby('Technicien').size().sort_values(ascending=False).head(10)
+            if not top_tech.empty:
+                st.bar_chart(top_tech, color="#004a99")
+            else:
+                st.info("Aucun repeat trouvé pour ces filtres.")
+
+        with col_right:
+            st.subheader("📁 Top 10 Machines (SN) à surveiller")
+            top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().sort_values(ascending=False).head(10)
+            if not top_sn.empty:
+                st.bar_chart(top_sn, color="#ff4b4b")
+            else:
+                st.info("Aucune machine critique identifiée.")
+
+        # --- 4. TABLEAU DÉTAILLÉ ---
+        st.divider()
+        st.subheader("📋 Liste des Impacts Repeat (Détails)")
+        list_rep = df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']]
+        st.dataframe(list_rep, use_container_width=True)
+
+        # --- 5. BOUTON EXPORT (SIDEBAR) ---
+        st.sidebar.markdown("---")
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_f.to_excel(writer, index=False)
+        st.sidebar.download_button("📥 Télécharger Rapport Complet", buffer.getvalue(), "Arkeos_Performance.xlsx")
+
+    else:
+        st.warning("Aucune donnée pour cette sélection.")
+else:
+    st.error("Fichier CSV introuvable. Vérifiez le nom du fichier.")
