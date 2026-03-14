@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 import io
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # 1. Configuration
 st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
@@ -49,7 +51,7 @@ if df_raw is not None:
     techs = sorted(df_raw['Technicien'].unique().tolist())
     sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
     
-    df_f = df_raw[(df_raw['Date'].dt.year.isin(sel_years)) & (df_raw['Technicien'].isin(sel_techs))]
+    df_f = df_raw[(df_raw['Date'].dt.year.isin(sel_years)) & (df_raw['Technicien'].isin(sel_techs))].copy()
 
     # --- PAGE PRINCIPALE ---
     st.title("📊 Arkeos Technical Support Dashboard")
@@ -59,9 +61,8 @@ if df_raw is not None:
         total_int = len(df_f)
         total_rep = df_f['Is_Repeat'].sum()
         repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
-        ftr_rate = 100 - repeat_rate # KPI First Time Resolution
+        ftr_rate = 100 - repeat_rate 
 
-        # Affichage des 4 KPI
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Interventions", f"{total_int:,}")
         c2.metric("Repeats", f"{total_rep:,}")
@@ -70,13 +71,35 @@ if df_raw is not None:
 
         st.divider()
 
-        # Graphique Evolution
-        st.subheader("📈 Évolution Mensuelle")
+        # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL ---
+        st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
+        
+        # Préparation des données pour le graphique
         df_f['Mois_Num'] = df_f['Date'].dt.month
-        df_f['Mois'] = df_f['Date'].dt.strftime('%B')
-        evol = df_f.groupby(['Mois_Num', 'Mois'])['Is_Repeat'].mean() * 100
-        evol = evol.reset_index().sort_values('Mois_Num')
-        st.line_chart(evol.set_index('Mois')['Is_Repeat'], color="#004a99")
+        # Dictionnaire pour noms de mois propres
+        noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
+                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
+        
+        evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
+        evol = evol.reset_index()
+        evol['Mois'] = evol['Mois_Num'].map(noms_mois)
+
+        # Création de la figure Matplotlib
+        fig, ax = plt.subplots(figsize=(12, 4))
+        sns.set_theme(style="whitegrid")
+        
+        sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
+                     linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', ax=ax)
+        
+        # Esthétique professionnelle
+        ax.set_title("Taux de Repeat par Mois (%)", fontsize=14, pad=15, fontweight='bold')
+        ax.set_xlabel(None)
+        ax.set_ylabel("Taux (%)", fontsize=10)
+        ax.set_ylim(0, max(evol['Is_Repeat'].max() + 5, 20)) # Donne de l'air en haut
+        sns.despine(left=True, bottom=True)
+        
+        # Affichage dans Streamlit
+        st.pyplot(fig)
 
         # --- SECTIONS IMPACTS ---
         st.divider()
@@ -95,7 +118,6 @@ if df_raw is not None:
         # --- TABLEAU DÉTAILLÉ ---
         st.divider()
         st.subheader("📋 Liste des Impacts Repeat (Détails)")
-        # On montre les incidents qui sont des repeats
         list_rep = df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']]
         st.dataframe(list_rep, use_container_width=True)
 
@@ -109,4 +131,4 @@ if df_raw is not None:
     else:
         st.warning("Aucune donnée pour cette sélection.")
 else:
-    st.error("Fichier CSV introuvable sur GitHub.")
+    st.error("Fichier CSV introuvable. Vérifiez le nom du fichier.")
