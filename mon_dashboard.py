@@ -80,4 +80,4 @@ if df_raw is not None:
         # 1. Préparation des données
         df_f['Mois_Num'] = df_f['Date'].dt.month
         noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
-                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov',
+                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
