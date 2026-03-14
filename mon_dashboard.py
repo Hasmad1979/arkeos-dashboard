@@ -5,7 +5,7 @@ import os
 import io
 
 # 1. Configuration
-st.set_page_config(page_title="Arkeos Performance Dashboard", layout="wide")
+st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
 
 # Style CSS pour les métriques
 st.markdown("""
