@@ -71,18 +71,39 @@ if df_raw is not None:
 
         st.divider()
 
-        # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL ---
-        st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
-        
-        # Préparation des données pour le graphique
-        df_f['Mois_Num'] = df_f['Date'].dt.month
-        # Dictionnaire pour noms de mois propres
-        noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
-                     7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
-        
-        evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
-        evol = evol.reset_index()
-        evol['Mois'] = evol['Mois_Num'].map(noms_mois)
+       # --- GRAPHIQUE ÉVOLUTION PROFESSIONNEL OPTIMISÉ ---
+st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
+
+# 1. Préparation des données
+df_f['Mois_Num'] = df_f['Date'].dt.month
+noms_mois = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 
+             7:'Juil', 8:'Août', 9:'Sept', 10:'Oct', 11:'Nov', 12:'Déc'}
+
+evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
+evol = evol.reset_index()
+evol['Mois'] = evol['Mois_Num'].map(noms_mois)
+
+# 2. Création de la figure
+fig, ax = plt.subplots(figsize=(12, 4.5)) # Un peu plus haut pour les labels
+sns.set_theme(style="whitegrid")
+
+# Tracé de la ligne
+sns.lineplot(x='Mois', y='Is_Repeat', data=evol, marker='o', 
+             linewidth=3, color='#004a99', markerfacecolor='#ff4b4b', markersize=8, ax=ax)
+
+# 3. Ajout des Data Labels (Chiffres au-dessus des points)
+for i, row in evol.iterrows():
+    ax.text(i, row['Is_Repeat'] + 1.5, f"{row['Is_Repeat']:.1f}%", 
+            ha='center', va='bottom', fontsize=10, fontweight='bold', color='#333333')
+
+# 4. Esthétique finale
+ax.set_xlabel(None)
+ax.set_ylabel("Taux (%)", fontsize=10, fontweight='bold')
+ax.set_ylim(0, evol['Is_Repeat'].max() + 8) # On laisse de la place pour les labels
+sns.despine(left=True, bottom=True)
+
+# Affichage propre
+st.pyplot(fig)
 
         # Création de la figure Matplotlib
         fig, ax = plt.subplots(figsize=(12, 4))
