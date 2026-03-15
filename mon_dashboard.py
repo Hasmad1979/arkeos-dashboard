@@ -4,10 +4,9 @@ import plotly.express as px
 import os
 import io
 
-# 1. CONFIGURATION ET DESIGN CORPORATE
+# 1. CONFIGURATION ET DESIGN
 st.set_page_config(page_title="Arkeos Performance Dashboard", layout="wide")
 
-# CSS pour le style pro et les couleurs dynamiques
 st.markdown("""
     <style>
     .main { background-color: #F8FAFC; }
@@ -41,10 +40,9 @@ def load_data():
         "Compte de service": "Compte"
     })
     
-    # Nettoyage strict (enlever les 'nan' et 'No Actif')
+    # Nettoyage des valeurs parasites
     df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
     df = df[~df['Actif_SN'].isin(['nan', 'None', '', 'nan.0', 'No Actif'])]
-    df = df[~df['Compte'].astype(str).isin(['nan', 'None', ''])]
     
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date'])
@@ -61,7 +59,7 @@ def load_data():
 
 df = load_data()
 
-# 3. SIDEBAR : FILTRES ET EXPORT
+# 3. FILTRES ET EXPORT
 if df is not None:
     with st.sidebar:
         st.header("🔍 Paramètres")
@@ -70,65 +68,66 @@ if df is not None:
         sel_tech = st.selectbox("Technicien", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
         
         st.markdown("---")
-        st.subheader("📥 Exportation")
-        
-        # Filtrage dynamique
+        # Logique de filtrage
         mask = (df['Année'].isin(sel_year)) & (df['Mois'].isin(sel_month))
         if sel_tech != "Tous": mask &= (df['Technicien'] == sel_tech)
         df_f = df[mask]
         
-        # Export des repeats uniquement
+        # Export Excel
         df_rep = df_f[df_f['Is_Repeat'] == 1]
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_rep.to_excel(writer, index=False, sheet_name='Repeats_Impact')
-        
-        st.download_button(label="📥 Télécharger Impact (Excel)", data=output.getvalue(), 
-                           file_name=f"Arkeos_Repeats_{sel_tech}.xlsx")
+        st.download_button("📥 Télécharger Impact (Excel)", output.getvalue(), file_name="Arkeos_Repeats.xlsx")
 
-    # 4. KPI DYNAMIQUES AVEC COULEURS
+    # 4. AFFICHAGE DES KPI
     total = len(df_f)
     nb_reps = df_f['Is_Repeat'].sum()
     rdr = (nb_reps / total * 100) if total > 0 else 0
     fttr = 100 - rdr
 
-    st.title("📠 Arkeos Technical Support Performance")
+    st.title("📠 Arkeos Performance Télécopieurs")
     
     k1, k2, k3, k4 = st.columns(4)
     with k1:
         st.markdown(f'<div class="kpi-card"><div class="kpi-label">Interventions</div><div class="value-blue">{total:,}</div></div>', unsafe_allow_html=True)
     with k2:
-        # Alerte Rouge si RDR > 20%
-        rdr_style = "value-red" if rdr > 20 else "value-blue"
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">RDR % (7j)</div><div class="{rdr_style}">{rdr:.1f}%</div></div>', unsafe_allow_html=True)
+        # Couleur dynamique : Rouge si > 20%
+        rdr_class = "value-red" if rdr > 20 else "value-blue"
+        st.markdown(f'<div class="kpi-card"><div class="kpi-label">RDR % (7j)</div><div class="{rdr_class}">{rdr:.1f}%</div></div>', unsafe_allow_html=True)
     with k3:
-        # FTTR en vert par défaut
         st.markdown(f'<div class="kpi-card"><div class="kpi-label">FTTR %</div><div class="value-green">{fttr:.1f}%</div></div>', unsafe_allow_html=True)
     with k4:
         st.markdown(f'<div class="kpi-card"><div class="kpi-label">Nb Repeats</div><div class="value-blue">{nb_reps}</div></div>', unsafe_allow_html=True)
 
     st.divider()
 
-    # 5. ANALYSE DES IMPACTS (REPEATS)
-    st.subheader("🚨 Analyse des Sites et Machines Critiques")
+    # 5. GRAPHIQUE DE TENDANCE RDR PAR SEMAINE
+    st.subheader("📈 Tendance RDR % Hebdomadaire")
+    trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
+    trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
     
+    fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True,
+                        color_discrete_sequence=['#1E3A8A'], height=400)
+    fig_trend.update_traces(textposition="top center")
+    fig_trend.update_layout(plot_bgcolor='white', xaxis_title="Semaine d'intervention", yaxis_title="RDR %")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    # 6. ANALYSE DES IMPACTS
+    st.subheader("🚨 Analyse des Sites et Machines Critiques")
     col_a, col_b = st.columns(2)
     
     with col_a:
-        # Top Actifs (Numéros de série)
         top_assets = df_rep['Actif_SN'].value_counts().nlargest(10).reset_index()
         fig_assets = px.bar(top_assets, x='count', y='Actif_SN', orientation='h',
                             title="Top 10 Machines (S/N)", color_discrete_sequence=['#EF4444'])
-        fig_assets.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='white')
         st.plotly_chart(fig_assets, use_container_width=True)
         
     with col_b:
-        # Top Comptes de Service (Sites clients)
         top_accounts = df_rep['Compte'].value_counts().nlargest(10).reset_index()
         fig_accounts = px.bar(top_accounts, x='count', y='Compte', orientation='h',
                               title="Top 10 Comptes (Sites Critiques)", color_discrete_sequence=['#F59E0B'])
-        fig_accounts.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='white')
         st.plotly_chart(fig_accounts, use_container_width=True)
 
 else:
-    st.error("Données non trouvées. Veuillez vérifier votre fichier source.")
+    st.error("Données non trouvées.")
