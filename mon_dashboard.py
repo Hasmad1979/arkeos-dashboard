@@ -65,7 +65,7 @@ if df is not None:
         st.header("🔍 Paramètres")
         sel_year = st.multiselect("Année", sorted(df['Année'].unique(), reverse=True), default=["2026"])
         sel_month = st.multiselect("Mois", df['Mois'].unique(), default=df['Mois'].unique().tolist())
-        sel_tech = st.selectbox("Technicien", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
+        sel_tech = st.selectbox("Team Leader", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
         
         st.markdown("---")
         # Logique de filtrage
