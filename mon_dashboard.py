@@ -4,6 +4,31 @@ import plotly.express as px
 import os
 import io
 
+
+# --- SYSTÈME DE SÉCURITÉ ---
+def login_screen():
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if not st.session_state["authenticated"]:
+        st.title("🔐 Accès Restreint - Arkeos")
+        user = st.text_input("Identifiant")
+        pw = st.text_input("Mot de passe", type="password")
+        if st.button("Se connecter"):
+            if user == "admin" and pw == "Arkeos2026":
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Identifiant ou mot de passe incorrect")
+        return False
+    return True
+
+# --- EXÉCUTION DE LA SÉCURITÉ ---
+if login_screen():
+    # Tout ton code actuel de dashboard doit être décalé (indenté) ici
+    st.sidebar.button("Se déconnecter", on_click=lambda: st.session_state.update({"authenticated": False}))
+    
+    # A partir d'ici, remets ton code : st.title("Arkeos..."), etc.
 # 1. CONFIGURATION ET DESIGN CORPORATE
 st.set_page_config(page_title="Arkeos AI Dashboard", layout="wide")
 
@@ -134,35 +159,7 @@ if df is not None:
         fig_c.update_traces(textposition='outside')
         st.plotly_chart(fig_c, use_container_width=True)
 
-# 1. Fonction de vérification (Copie ce bloc tel quel)
-def check_password():
-    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
-    def password_entered():
-        # Identifiants en dur pour une sécurité maximale contre les bugs de fichiers
-        if st.session_state["username"] == "admin" and st.session_state["password"] == "Arkeos2026":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Sécurité : on efface le mot de passe de la mémoire
-            del st.session_state["username"]
-        else:
-            st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
-        # Affichage du formulaire de connexion
-        st.title("🔐 Accès Restreint - Arkeos")
-        st.text_input("Identifiant", key="username")
-        st.text_input("Mot de passe", type="password", key="password")
-        st.button("Se connecter", on_click=password_entered)
-        return False
-    elif not st.session_state["password_correct"]:
-        # Message en cas d'erreur
-        st.title("🔐 Accès Restreint - Arkeos")
-        st.text_input("Identifiant", key="username")
-        st.text_input("Mot de passe", type="password", key="password")
-        st.button("Se connecter", on_click=password_entered)
-        st.error("😕 Identifiant ou mot de passe incorrect.")
-        return False
-    else:
-        return True
 
 else:
     st.error("Données non trouvées.")
