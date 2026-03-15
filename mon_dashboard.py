@@ -130,7 +130,7 @@ if df is not None:
         st.plotly_chart(fig_a, use_container_width=True)
     with cb:
         top_c = df_rep['Compte'].value_counts().nlargest(10).reset_index()
-        fig_c = px.bar(top_c, x='count', y='Compte', orientation='h', text='count', title="Top 10 Sites Impactés", color_discrete_sequence=['#F59E0B'])
+        fig_c = px.bar(top_c, x='count', y='Compte', orientation='h', text='count', title="Top 10 Clients Impactés", color_discrete_sequence=['#F59E0B'])
         fig_c.update_traces(textposition='outside')
         st.plotly_chart(fig_c, use_container_width=True)
 
