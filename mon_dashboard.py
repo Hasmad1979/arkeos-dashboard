@@ -92,7 +92,7 @@ if df is not None:
     rdr = (nb_reps / total * 100) if total > 0 else 0
     fttr = 100 - rdr
 
-    st.title("📠 Arkeos Performance Technical Support")
+    st.title("📠 Arkeos Technical Support Performance")
     
     k1, k2, k3, k4 = st.columns(4)
     with k1:
