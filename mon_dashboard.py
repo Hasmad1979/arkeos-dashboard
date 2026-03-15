@@ -5,8 +5,8 @@ import os
 import io
 import plotly.express as px
 
-# 1. CONFIGURATION
-st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
+# Configuration
+st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
@@ -16,49 +16,47 @@ def load_data():
     
     df = pd.read_csv(file_name)
     
-    # Détection automatique des colonnes pour éviter les KeyError
+    # Système de détection automatique des colonnes pour éviter les KeyError
     def find_col(keywords):
         for col in df.columns:
             if any(k.lower() in col.lower() for k in keywords):
                 return col
         return None
 
+    # Mapping basé sur vos dernières captures d'écran
     mapping = {
-        find_col(["ordre", "incident", "numéro"]): "ID",
+        find_col(["ordre", "incident"]): "ID",
         find_col(["actifs", "client", "sn"]): "SN",
-        find_col(["propriétaire", "owner", "technicien"]): "Technicien",
+        find_col(["propriétaire", "owner"]): "Technicien",
         find_col(["création", "créé le"]): "Date_Debut",
-        find_col(["fin", "clôture", "terminé"]): "Date_Fin",
+        find_col(["fin", "clôture"]): "Date_Fin",
         find_col(["type", "panne"]): "Panne",
         find_col(["compte", "service"]): "Compte"
     }
     
-    # Nettoyage du mapping (on retire les colonnes non trouvées)
     mapping = {k: v for k, v in mapping.items() if k is not None}
     df = df.rename(columns=mapping)
     
-    # Conversion des dates
-    for c in ['Date_Debut', 'Date_Fin']:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors='coerce')
+    # Conversion dates
+    for col in ['Date_Debut', 'Date_Fin']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
     
     df = df.dropna(subset=['SN', 'Date_Debut'])
 
-    # --- CALCUL RUN TIME (HORS WEEKENDS) ---
-    def calc_mins(row):
+    # --- CALCUL RUN TIME HORS WEEKENDS ---
+    def bus_mins(row):
         if pd.isnull(row.get('Date_Debut')) or pd.isnull(row.get('Date_Fin')): return 0
         try:
             d1, d2 = row['Date_Debut'].date(), row['Date_Fin'].date()
             if d1 > d2: return 0
-            # Durée brute en minutes
-            duration = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
-            # On vérifie si l'intervalle contient des jours ouvrés
-            return duration if np.busday_count(d1, d2) >= 0 else 0
+            total_mins = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
+            return total_mins if np.busday_count(d1, d2) >= 0 else 0
         except: return 0
 
-    df['Duree_Mins'] = df.apply(calc_mins, axis=1)
+    df['Duree_Mins'] = df.apply(bus_mins, axis=1)
     
-    # --- CALCUL REPEAT (22 JOURS OUVRÉS) ---
+    # --- CALCUL REPEAT (22 jours ouvrés) ---
     df = df.sort_values(['SN', 'Date_Debut'])
     df['Date_Prev'] = df.groupby('SN')['Date_Debut'].shift(1)
     
@@ -74,61 +72,36 @@ def load_data():
 
 df_raw = load_data()
 
-# --- INTERFACE ---
 if df_raw is not None:
-    st.title("📊 Arkeos Support Dashboard")
-    st.markdown("---")
-
-    # Sidebar Filtres
-    st.sidebar.header("Filtres")
-    years = sorted(df_raw['Date_Debut'].dt.year.unique(), reverse=True)
-    sel_years = st.sidebar.multiselect("Années", years, default=years)
+    st.title("📊 Arkeos Technical Support Dashboard")
     
-    mask = df_raw['Date_Debut'].dt.year.isin(sel_years)
-    df_f = df_raw[mask].copy()
-
-    if not df_f.empty:
-        # --- LIGNE 1 : KPI ---
-        total_int = len(df_f)
-        total_rep = df_f['Is_Repeat'].sum()
-        run_time_h = df_f['Duree_Mins'].sum() / 60
-        avg_time_m = df_f['Duree_Mins'].mean()
-
+    if not df_raw.empty:
+        # --- KPI ---
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("Taux Repeat", f"{(total_rep/total_int*100):.1f}%")
-        c3.metric("Run Time Total", f"{run_time_h:,.0f} h")
-        c4.metric("Avg Time", f"{avg_time_m:.1f} min")
+        c1.metric("Interventions", f"{len(df_raw):,}")
+        c2.metric("Total Repeats", f"{df_raw['Is_Repeat'].sum():,}")
+        c3.metric("Run Time Total", f"{(df_raw['Duree_Mins'].sum()/60):,.0f} h")
+        c4.metric("Avg Time", f"{df_raw['Duree_Mins'].mean():.1f} min")
 
-        # --- LIGNE 2 : ÉVOLUTION ---
-        st.markdown("### 📈 Évolution Mensuelle")
-        df_f['Mois'] = df_f['Date_Debut'].dt.to_period('M').astype(str)
-        evol = df_f.groupby('Mois')['Is_Repeat'].mean().reset_index()
-        evol['Taux (%)'] = evol['Is_Repeat'] * 100
-        fig_evol = px.line(evol, x='Mois', y='Taux (%)', markers=True, color_discrete_sequence=['#004a99'])
-        st.plotly_chart(fig_evol, use_container_width=True)
-
-        # --- LIGNE 3 : IMPACTS ---
+        # --- GRAPHIQUES ---
+        st.markdown("---")
         col_l, col_r = st.columns(2)
         
         with col_l:
             st.subheader("🛠️ Top 10 Pannes")
-            if 'Panne' in df_f.columns:
-                top_p = df_f[df_f['Is_Repeat']==1].groupby('Panne').size().nlargest(10).reset_index(name='Nb')
-                st.plotly_chart(px.bar(top_p, x='Nb', y='Panne', orientation='h', color_discrete_sequence=['#004a99']), use_container_width=True)
+            if 'Panne' in df_raw.columns:
+                top_p = df_raw[df_raw['Is_Repeat']==1].groupby('Panne').size().nlargest(10).reset_index(name='Nb')
+                st.plotly_chart(px.bar(top_p, x='Nb', y='Panne', orientation='h'), use_container_width=True)
 
         with col_r:
             st.subheader("🏢 Impact par Compte")
-            if 'Compte' in df_f.columns:
-                top_c = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
-                st.plotly_chart(px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+            if 'Compte' in df_raw.columns:
+                top_c = df_raw[df_raw['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
+                st.plotly_chart(px.bar(top_c, x='Nb', y='Compte', orientation='h'), use_container_width=True)
 
-        # Bouton Export
+        # Export Excel
         buffer = io.BytesIO()
-        df_f[df_f['Is_Repeat']==1].to_excel(buffer, index=False)
-        st.sidebar.download_button("📥 Télécharger Repeats (Excel)", buffer.getvalue(), "repeats_arkeos.xlsx")
-
-    else:
-        st.warning("Aucune donnée pour les filtres sélectionnés.")
+        df_raw[df_raw['Is_Repeat']==1].to_excel(buffer, index=False)
+        st.sidebar.download_button("📥 Télécharger les Repeats", buffer.getvalue(), "repeats.xlsx")
 else:
-    st.error("Fichier de données introuvable.")
+    st.error("Fichier de données introuvable sur GitHub.")
