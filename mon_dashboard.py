@@ -1,50 +1,45 @@
 import streamlit as st
-import streamlit_authenticator as stauth
 
-# 1. Configuration de la page
-st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
+st.set_page_config(page_title="Arkeos Tech Support", layout="wide")
 
-# 2. On définit l'utilisateur directement dans le code (plus de fichier YAML externe)
-# Le mot de passe ici est : Arkeos2026
-credentials = {
-    'usernames': {
-        'admin': {
-            'email': 'admin@arkeos.com',
-            'name': 'Administrateur Arkeos',
-            'password': '$2b$12$N3q7mYn0D1.S8pG.L8PzOuX0k3z6J7H8zK9tL0mM1nO2pP3qR4sS5'
-        }
-    }
-}
+# Fonction de vérification simple
+def check_password():
+    def password_entered():
+        if st.session_state["username"] == "admin" and st.session_state["password"] == "Arkeos2026":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # On ne garde pas le mot de passe en mémoire
+            del st.session_state["username"]
+        else:
+            st.session_state["password_correct"] = False
 
-# 3. Initialisation
-authenticator = stauth.Authenticate(
-    credentials,
-    'arkeos_cookie',
-    'arkeos_key',
-    30
-)
+    if "password_correct" not in st.session_state:
+        # Affichage du formulaire de login
+        st.title("Connexion Arkeos")
+        st.text_input("Identifiant", key="username")
+        st.text_input("Mot de passe", type="password", key="password")
+        st.button("Se connecter", on_click=password_entered)
+        return False
+    elif not st.session_state["password_correct"]:
+        # Mauvais mot de passe
+        st.text_input("Identifiant", key="username")
+        st.text_input("Mot de passe", type="password", key="password")
+        st.button("Se connecter", on_click=password_entered)
+        st.error("😕 Identifiant ou mot de passe inconnu")
+        return False
+    else:
+        # Mot de passe correct
+        return True
 
-# 4. Formulaire de login
-authenticator.login(location='main')
-
-# 5. La logique d'affichage
-if st.session_state["authentication_status"]:
-    # SI CONNECTÉ : On affiche ton dashboard
-    authenticator.logout('Déconnexion', 'sidebar')
+if check_password():
+    # --- TON DASHBOARD COMMENCE ICI ---
+    st.sidebar.button("Se déconnecter", on_click=lambda: st.session_state.clear())
     
-    # --- DEBUT DE TON DASHBOARD ---
     st.title("🏗️ Arkeos Technical Support Dashboard")
     
-    # Tes métriques que j'ai vues sur ta photo
     col1, col2, col3 = st.columns(3)
     col1.metric("Interventions", "2,700")
     col2.metric("RDR % (7j)", "26.7%")
     col3.metric("FTTR %", "73.3%")
     
-    st.success("Connexion réussie ! Ton dashboard est ici.")
-    # --- FIN DE TON DASHBOARD ---
-
-elif st.session_state["authentication_status"] is False:
-    st.error('Identifiant ou mot de passe incorrect')
-elif st.session_state["authentication_status"] is None:
-    st.warning('Veuillez entrer vos accès pour voir le dashboard')
+    st.success("Accès sécurisé validé.")
+    # Ajoute ici le reste de tes graphiques
