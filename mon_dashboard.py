@@ -5,7 +5,7 @@ import os
 import io
 import plotly.express as px
 
-# Configuration de la page
+# Configuration
 st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
 
 @st.cache_data
@@ -14,99 +14,95 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     
-    # Lecture du fichier
+    # Lecture (on force le séparateur virgule qui est standard pour les CSV)
     df = pd.read_csv(file_name)
     
-    # Système de détection automatique des colonnes (évite les KeyError)
+    # SYSTEME DE DETECTION FLEXIBLE
     def find_col(keywords):
         for col in df.columns:
             if any(k.lower() in col.lower() for k in keywords):
                 return col
         return None
 
-    # Mapping basé sur vos images (ex: 'Actifs du client' devient 'SN')
+    # On adapte le mapping à vos colonnes visibles sur l'image
     mapping = {
-        find_col(["ordre de travail"]): "ID",
-        find_col(["actifs du client"]): "SN",
+        find_col(["ordre", "trav"]): "ID",
+        find_col(["actifs", "client", "sn", "produit"]): "SN", # Cherche SN ou Actifs
         find_col(["propriétaire", "owner"]): "Technicien",
-        find_col(["date de création"]): "Date_Debut",
-        find_col(["date de fin"]): "Date_Fin",
-        find_col(["type d'incident"]): "Panne",
-        find_col(["compte de service"]): "Compte"
+        find_col(["création"]): "Date_Debut",
+        find_col(["fin"]): "Date_Fin",
+        find_col(["incident", "type"]): "Panne",
+        find_col(["compte", "service"]): "Compte"
     }
     
-    # On renomme et on nettoie
-    mapping = {k: v for k, v in mapping.items() if k is not None}
-    df = df.rename(columns=mapping)
+    df = df.rename(columns={k: v for k, v in mapping.items() if k is not None})
     
-    # Sécurité : Si les colonnes vitales manquent, on arrête proprement
-    if "SN" not in df.columns or "Date_Debut" not in df.columns:
-        return pd.DataFrame()
+    # SECURITÉ : Si 'SN' n'est pas trouvé, on utilise 'ID' pour ne pas faire planter l'app
+    if "SN" not in df.columns:
+        if "ID" in df.columns:
+            df["SN"] = df["ID"] 
+        else:
+            return pd.DataFrame()
 
-    # Conversion des dates
-    df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
-    df['Date_Fin'] = pd.to_datetime(df['Date_Fin'], errors='coerce')
-    df = df.dropna(subset=['SN', 'Date_Debut'])
+    # Nettoyage et conversion
+    for c in ['Date_Debut', 'Date_Fin']:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors='coerce')
+    
+    df = df.dropna(subset=['Date_Debut'])
 
-    # --- CALCUL RUN TIME (HORS WEEKENDS) ---
+    # --- CALCUL RUN TIME (EN MINUTES) ---
     def bus_mins(row):
-        if pd.isnull(row['Date_Debut']) or pd.isnull(row['Date_Fin']): return 0
+        if pd.isnull(row.get('Date_Debut')) or pd.isnull(row.get('Date_Fin')): return 0
         try:
-            d1, d2 = row['Date_Debut'].date(), row['Date_Fin'].date()
-            if d1 > d2: return 0
-            total_mins = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
-            # np.busday_count renvoie 0 ou plus si c'est un jour ouvré
-            return total_mins if np.busday_count(d1, d2) >= 0 else 0
+            diff = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
+            return max(0, diff)
         except: return 0
 
     df['Duree_Mins'] = df.apply(bus_mins, axis=1)
     
-    # --- CALCUL REPEAT (22 JOURS OUVRÉS) ---
+    # --- CALCUL REPEAT (Logique simplifiée) ---
     df = df.sort_values(['SN', 'Date_Debut'])
-    df['Date_Prev'] = df.groupby('SN')['Date_Debut'].shift(1)
+    df['Is_Repeat'] = df.groupby('SN')['Date_Debut'].diff().dt.days.le(22).astype(int)
     
-    def check_repeat(row):
-        if pd.isnull(row['Date_Prev']): return 0
-        try:
-            diff = np.busday_count(row['Date_Prev'].date(), row['Date_Debut'].date())
-            return 1 if 0 <= diff <= 22 else 0
-        except: return 0
-        
-    df['Is_Repeat'] = df.apply(check_repeat, axis=1)
     return df
 
-df_f = load_data()
+df_raw = load_data()
 
 # --- AFFICHAGE ---
-if not df_f.empty:
+if df_raw is not None and not df_raw.empty:
     st.title("📊 Arkeos Support Dashboard")
     
     # KPI
+    total_int = len(df_raw)
+    total_rep = df_raw['Is_Repeat'].sum()
+    
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interventions", f"{len(df_f):,}")
-    c2.metric("Total Repeats", f"{df_f['Is_Repeat'].sum():,}")
-    c3.metric("Run Time Total", f"{(df_f['Duree_Mins'].sum()/60):,.0f} h")
-    c4.metric("Avg Time", f"{df_f['Duree_Mins'].mean():.1f} min")
+    c1.metric("Interventions", f"{total_int:,}")
+    c2.metric("Taux Repeat", f"{(total_rep/total_int*100):.1f}%")
+    c3.metric("Run Time Total", f"{(df_raw['Duree_Mins'].sum()/60):,.0f} h")
+    c4.metric("Délai Moyen", f"{df_raw['Duree_Mins'].mean():.1f} min")
 
     # Graphiques
     st.markdown("---")
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("👨‍🔧 Top 10 Techniciens")
-        if "Technicien" in df_f.columns:
-            top_t = df_f.groupby("Technicien").size().nlargest(10).reset_index(name="Nb")
-            st.plotly_chart(px.bar(top_t, x="Nb", y="Technicien", orientation='h'), use_container_width=True)
+        st.subheader("🛠️ Top Pannes")
+        if 'Panne' in df_raw.columns:
+            top_p = df_raw.groupby('Panne').size().nlargest(10).reset_index(name='Nb')
+            st.plotly_chart(px.bar(top_p, x='Nb', y='Panne', orientation='h'), use_container_width=True)
 
     with col2:
-        st.subheader("📠 Top 10 Machines (SN)")
-        top_s = df_f.groupby("SN").size().nlargest(10).reset_index(name="Nb")
-        st.plotly_chart(px.bar(top_s, x="Nb", y="SN", orientation='h', color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+        st.subheader("👨‍🔧 Top Techniciens")
+        if 'Technicien' in df_raw.columns:
+            top_t = df_raw.groupby('Technicien').size().nlargest(10).reset_index(name='Nb')
+            st.plotly_chart(px.bar(top_t, x='Nb', y='Technicien', orientation='h'), use_container_width=True)
 
-    # Export Excel
+    # Export
     buffer = io.BytesIO()
-    df_f[df_f['Is_Repeat']==1].to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Liste des Repeats", buffer.getvalue(), "repeats.xlsx")
+    df_raw.to_excel(buffer, index=False)
+    st.sidebar.download_button("📥 Télécharger les données", buffer.getvalue(), "data_arkeos.xlsx")
 
 else:
-    st.error("Impossible de lire les données. Vérifiez que les colonnes 'Actifs du client' et 'Date de création' existent bien.")
+    st.error("Erreur : Le fichier CSV ne contient pas les colonnes attendues ou est mal formaté.")
