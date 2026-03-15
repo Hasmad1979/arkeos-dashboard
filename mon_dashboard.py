@@ -16,9 +16,9 @@ def load_data():
     
     df = pd.read_csv(file_name)
 
-    # Mapping strict selon vos colonnes réelles
+    # Mapping basé sur vos colonnes réelles
     mapping = {
-        "Numéro d'ordre de travail": "ID",
+        "Numéro d'ordre de trav": "ID",
         "Propriétaire": "Technicien",
         "Type d'incident principal": "Panne",
         "Compte de service": "Compte",
@@ -30,10 +30,14 @@ def load_data():
     df = df.rename(columns=mapping)
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # Nettoyage des données de base
+    # Nettoyage des techniciens : on garde les noms propres, on exclut les CC-WO
+    if 'Technicien' in df.columns:
+        df = df[df['Technicien'].str.contains(' ', na=False)]
+        df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
+    
     df = df.dropna(subset=['Date_Debut', 'Actif_SN', 'Compte'])
 
-    # --- CALCUL REPEAT (7 JOURS OUVRES PAR ACTIF/SN) ---
+    # --- CALCUL REPEAT (7 JOURS OUVRES PAR ACTIF) ---
     df = df.sort_values(['Actif_SN', 'Date_Debut'])
     df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
     
@@ -46,11 +50,10 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
-    # --- DIMENSIONS TEMPORELLES (AJOUT SEMAINE) ---
+    # Dimensions temporelles
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
     df['Mois_Num'] = df['Date_Debut'].dt.month
-    # Création d'une colonne Semaine (format '2026-W01')
     df['Semaine'] = df['Date_Debut'].dt.strftime('%Y-W%V')
     
     return df
@@ -58,20 +61,29 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None and not df_raw.empty:
-    # --- FILTRES ---
+    # --- FILTRES (SIDEBAR) ---
     st.sidebar.header("🔍 Filtres")
+    
     years = sorted(df_raw['Année'].unique(), reverse=True)
     selected_year = st.sidebar.multiselect("Année", options=years, default=years)
     
     mois_dispo = df_raw[df_raw['Année'].isin(selected_year)].sort_values('Mois_Num')['Mois_Nom'].unique()
     selected_month = st.sidebar.multiselect("Mois", options=list(mois_dispo), default=list(mois_dispo))
     
+    # REINTEGRATION DU FILTRE PROPRIETAIRE
+    tech_list = ["Tous"] + sorted(df_raw['Technicien'].unique().tolist())
+    selected_tech = st.sidebar.selectbox("Propriétaire (Technicien)", options=tech_list)
+
+    # Application des filtres
     mask = (df_raw['Année'].isin(selected_year)) & (df_raw['Mois_Nom'].isin(selected_month))
+    if selected_tech != "Tous":
+        mask = mask & (df_raw['Technicien'] == selected_tech)
+    
     df_f = df_raw[mask]
 
-    # --- AFFICHAGE KPI ---
+    # --- DASHBOARD ---
     st.title("📊 Arkeos Support Dashboard")
-    st.subheader("Analyse de Performance Hebdomadaire")
+    st.subheader(f"Analyse Hebdomadaire - Filtre : {selected_tech}")
     
     total = len(df_f)
     repeats = df_f['Is_Repeat'].sum()
@@ -86,15 +98,13 @@ if df_raw is not None and not df_raw.empty:
 
     st.markdown("---")
 
-    # --- NOUVEAU : TENDANCE RDR PAR SEMAINE ---
+    # --- TENDANCE HEBDOMADAIRE ---
     st.subheader("📈 Tendance RDR % par Semaine")
-    # On groupe par la colonne 'Semaine' créée plus haut
     trend_week = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
     trend_week['RDR %'] = trend_week['Is_Repeat'] * 100
     
     fig_week = px.line(trend_week, x='Semaine', y='RDR %', markers=True, 
-                        line_shape='linear', color_discrete_sequence=['#007BFF'],
-                        labels={'Semaine': 'Semaine de l\'année', 'RDR %': 'Taux de Repeat (%)'})
+                        color_discrete_sequence=['#007BFF'])
     fig_week.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_week, use_container_width=True)
 
@@ -118,7 +128,7 @@ if df_raw is not None and not df_raw.empty:
     # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_weekly_report.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_filtered_report.xlsx")
 
 else:
-    st.error("Erreur de chargement des données ou colonnes manquantes.")
+    st.error("Données introuvables. Vérifiez le fichier source.")
