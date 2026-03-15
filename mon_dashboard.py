@@ -9,6 +9,17 @@ import seaborn as sns
 # 1. Configuration
 st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
 
+# Masquer les éléments Streamlit (Header, Footer, Menu)
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            .st-emotion-cache-12fmjuu {display: none;} /* Masque l'icône GitHub si présente */
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # Style CSS pour les métriques
 st.markdown("""
     <style>
