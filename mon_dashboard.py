@@ -4,8 +4,9 @@ import numpy as np
 import os
 import io
 import plotly.express as px
+from PIL import Image # Nécessaire pour charger le logo
 
-# 1. CONFIGURATION
+# 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
 
 @st.cache_data
@@ -16,7 +17,7 @@ def load_data():
     
     df = pd.read_csv(file_name)
 
-    # Mapping basé sur vos colonnes réelles
+    # Mapping strict selon vos colonnes réelles
     mapping = {
         "Numéro d'ordre de trav": "ID",
         "Propriétaire": "Technicien",
@@ -50,6 +51,7 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
+    # Dimensions temporelles
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
     df['Mois_Num'] = df['Date_Debut'].dt.month
@@ -59,9 +61,23 @@ def load_data():
 
 df_raw = load_data()
 
-if df_raw is not None and not df_raw.empty:
-    # --- FILTRES ---
+# --- BARRE LATÉRALE AVEC LOGO ET FILTRES ---
+if df_raw is not None:
+    # --- AJOUT DU LOGO ICI ---
+    try:
+        # On charge l'image uploadée
+        logo = Image.open('download.png')
+        # On l'affiche en haut de la sidebar, alignée à gauche, avec une largeur contrôlée
+        st.sidebar.image(logo, use_container_width=False, width=150) 
+        # Petit espace sous le logo pour respirer
+        st.sidebar.markdown("---") 
+    except FileNotFoundError:
+        # Si le fichier n'est pas trouvé, on n'affiche rien pour éviter de faire planter l'app
+        pass
+
+    # --- FILTRES (Suite de la sidebar) ---
     st.sidebar.header("🔍 Filtres")
+    
     years = sorted(df_raw['Année'].unique(), reverse=True)
     selected_year = st.sidebar.multiselect("Année", options=years, default=years)
     
@@ -132,7 +148,7 @@ if df_raw is not None and not df_raw.empty:
     # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_report_7j.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_arkeos.xlsx")
 
 else:
-    st.error("Données introuvables ou colonnes incorrectes.")
+    st.error("Données introuvables. Vérifiez le fichier source.")
