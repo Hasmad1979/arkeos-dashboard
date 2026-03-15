@@ -25,109 +25,99 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CHARGEMENT ET NETTOYAGE DES DONNÉES
+# 2. CHARGEMENT ET NETTOYAGE SÉCURISÉ
 @st.cache_data
 def load_data():
     file_path = "data_dynamics_brute.csv.csv"
     if not os.path.exists(file_path): return None
     df = pd.read_csv(file_path)
     
-    # Mapping des colonnes
-    df = df.rename(columns={
+    # Mapping des colonnes avec vérification pour éviter le KeyError
+    mapping = {
         "Actif client principal de l'incident": "Actif_SN",
         "Propriétaire": "Technicien",
         "Date de création": "Date",
         "Compte de service": "Compte"
-    })
+    }
+    df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
     
-    # Nettoyage des valeurs parasites
-    df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
-    df = df[~df['Actif_SN'].isin(['nan', 'None', '', 'nan.0', 'No Actif'])]
+    # Nettoyage
+    if 'Actif_SN' in df.columns:
+        df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
+        df = df[~df['Actif_SN'].isin(['nan', 'None', '', 'nan.0', 'No Actif'])]
     
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.dropna(subset=['Date'])
-    
-    # Calcul RDR (Repeat sous 7 jours)
-    df = df.sort_values(['Actif_SN', 'Date'])
-    df['Is_Repeat'] = (df.groupby('Actif_SN')['Date'].diff().dt.days <= 7).astype(int)
-    
-    df['Année'] = df['Date'].dt.year.astype(str)
-    df['Mois'] = df['Date'].dt.strftime('%B')
-    df['Semaine'] = df['Date'].dt.strftime('%Y-W%V')
+    if 'Date' in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.dropna(subset=['Date'])
+        
+        # Calcul RDR (Repeat 7j)
+        df = df.sort_values(['Actif_SN', 'Date'])
+        df['Is_Repeat'] = (df.groupby('Actif_SN')['Date'].diff().dt.days <= 7).astype(int)
+        
+        df['Année'] = df['Date'].dt.year.astype(str)
+        df['Mois'] = df['Date'].dt.strftime('%B')
+        df['Semaine'] = df['Date'].dt.strftime('%Y-W%V')
     
     return df
 
 df = load_data()
 
-# 3. FILTRES ET EXPORT
+# 3. FILTRES ET KPI
 if df is not None:
     with st.sidebar:
         st.header("🔍 Paramètres")
         sel_year = st.multiselect("Année", sorted(df['Année'].unique(), reverse=True), default=["2026"])
         sel_month = st.multiselect("Mois", df['Mois'].unique(), default=df['Mois'].unique().tolist())
-        sel_tech = st.selectbox("Team Leader", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
+        sel_tech = st.selectbox("Technicien", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
         
-        st.markdown("---")
-        # Logique de filtrage
         mask = (df['Année'].isin(sel_year)) & (df['Mois'].isin(sel_month))
         if sel_tech != "Tous": mask &= (df['Technicien'] == sel_tech)
         df_f = df[mask]
         
-        # Export Excel
         df_rep = df_f[df_f['Is_Repeat'] == 1]
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_rep.to_excel(writer, index=False, sheet_name='Repeats_Impact')
-        st.download_button("📥 Télécharger Impact (Excel)", output.getvalue(), file_name="Arkeos_Repeats.xlsx")
 
-    # 4. AFFICHAGE DES KPI
+    # Calculs KPI
     total = len(df_f)
     nb_reps = df_f['Is_Repeat'].sum()
     rdr = (nb_reps / total * 100) if total > 0 else 0
     fttr = 100 - rdr
 
-    st.title("📠 Arkeos Technical Support Dashboard")
+    st.title("📠 Arkeos Performance Télécopieurs")
     
+    # Affichage des KPI avec couleurs dynamiques
     k1, k2, k3, k4 = st.columns(4)
-    with k1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">Interventions</div><div class="value-blue">{total:,}</div></div>', unsafe_allow_html=True)
+    with k1: st.markdown(f'<div class="kpi-card"><div class="kpi-label">Interventions</div><div class="value-blue">{total:,}</div></div>', unsafe_allow_html=True)
     with k2:
-        # Couleur dynamique : Rouge si > 20%
-        rdr_class = "value-red" if rdr > 20 else "value-blue"
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">RDR % (7j)</div><div class="{rdr_class}">{rdr:.1f}%</div></div>', unsafe_allow_html=True)
-    with k3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">FTTR %</div><div class="value-green">{fttr:.1f}%</div></div>', unsafe_allow_html=True)
-    with k4:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">Nb Repeats</div><div class="value-blue">{nb_reps}</div></div>', unsafe_allow_html=True)
+        rdr_style = "value-red" if rdr > 20 else "value-blue"
+        st.markdown(f'<div class="kpi-card"><div class="kpi-label">RDR % (7j)</div><div class="{rdr_style}">{rdr:.1f}%</div></div>', unsafe_allow_html=True)
+    with k3: st.markdown(f'<div class="kpi-card"><div class="kpi-label">FTTR %</div><div class="value-green">{fttr:.1f}%</div></div>', unsafe_allow_html=True)
+    with k4: st.markdown(f'<div class="kpi-card"><div class="kpi-label">Nb Repeats</div><div class="value-blue">{nb_reps}</div></div>', unsafe_allow_html=True)
 
     st.divider()
 
-    # 5. GRAPHIQUE DE TENDANCE RDR PAR SEMAINE
-    st.subheader("📈 Tendance RDR % Hebdomadaire")
-    trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
-    trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
-    
-    fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True,
-                        color_discrete_sequence=['#1E3A8A'], height=400)
-    fig_trend.update_traces(textposition="top center")
-    fig_trend.update_layout(plot_bgcolor='white', xaxis_title="Semaine d'intervention", yaxis_title="RDR %")
-    st.plotly_chart(fig_trend, use_container_width=True)
-
-    # 6. ANALYSE DES IMPACTS
+    # 4. ANALYSE DES IMPACTS AVEC AFFICHAGE DES COUNTS
     st.subheader("🚨 Analyse des Sites et Machines Critiques")
     col_a, col_b = st.columns(2)
     
     with col_a:
+        # Top Actifs avec ajout des labels de texte
         top_assets = df_rep['Actif_SN'].value_counts().nlargest(10).reset_index()
         fig_assets = px.bar(top_assets, x='count', y='Actif_SN', orientation='h',
+                            text='count', # AJOUT DU COUNT SUR LES BARRES
                             title="Top 10 Machines (S/N)", color_discrete_sequence=['#EF4444'])
+        fig_assets.update_traces(textposition='outside')
+        fig_assets.update_layout(plot_bgcolor='white', yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig_assets, use_container_width=True)
         
     with col_b:
+        # Top Comptes avec ajout des labels de texte
         top_accounts = df_rep['Compte'].value_counts().nlargest(10).reset_index()
         fig_accounts = px.bar(top_accounts, x='count', y='Compte', orientation='h',
+                              text='count', # AJOUT DU COUNT SUR LES BARRES
                               title="Top 10 Comptes (Sites Critiques)", color_discrete_sequence=['#F59E0B'])
+        fig_accounts.update_traces(textposition='outside')
+        fig_accounts.update_layout(plot_bgcolor='white', yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig_accounts, use_container_width=True)
 
 else:
-    st.error("Données non trouvées.")
+    st.error("Données non chargées.")
