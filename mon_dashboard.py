@@ -75,7 +75,7 @@ if df is not None:
         st.download_button("📥 Télécharger Excel", output.getvalue(), file_name="Arkeos_Repeats.xlsx")
 
     # 4. EN-TÊTE ET KPI
-    st.title("📠 Arkeos Technical Intelligence")
+    st.title("📠 Arkeos Technical Support Dashboard")
     
     total, nb_reps = len(df_f), df_f['Is_Repeat'].sum()
     rdr = (nb_reps / total * 100) if total > 0 else 0
