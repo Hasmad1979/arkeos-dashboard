@@ -2,12 +2,9 @@ credentials:
   usernames:
     admin:
       email: admin@arkeos.com
-      name: Administrateur
-      password: 'MADLAL19791979'
+      name: Administrateur Arkeos
+      password: '$2b$12$N3q7mYn0D1.S8pG.L8PzOuX0k3z6J7H8zK9tL0mM1nO2pP3qR4sS5'
 cookie:
   expiry_days: 30
-  key: arkeos_secret_key_2026
+  key: arkeos_secret_key
   name: arkeos_auth
-preauthorized:
-  emails:
-    - tech@arkeos.com
