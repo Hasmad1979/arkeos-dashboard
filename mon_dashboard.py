@@ -28,15 +28,9 @@ def load_data():
     }
     
     df = df.rename(columns=mapping)
-    
-    # Conversion et nettoyage
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # Nettoyage des techniciens pour ne garder que les noms propres
-    if 'Technicien' in df.columns:
-        df = df[df['Technicien'].str.contains(' ', na=False)]
-        df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
-    
+    # Nettoyage des données de base
     df = df.dropna(subset=['Date_Debut', 'Actif_SN', 'Compte'])
 
     # --- CALCUL REPEAT (7 JOURS OUVRES PAR ACTIF/SN) ---
@@ -52,11 +46,12 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
-    # Dimensions temporelles
-    df['Periode'] = df['Date_Debut'].dt.to_period('M').astype(str)
+    # --- DIMENSIONS TEMPORELLES (AJOUT SEMAINE) ---
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
     df['Mois_Num'] = df['Date_Debut'].dt.month
+    # Création d'une colonne Semaine (format '2026-W01')
+    df['Semaine'] = df['Date_Debut'].dt.strftime('%Y-W%V')
     
     return df
 
@@ -71,18 +66,12 @@ if df_raw is not None and not df_raw.empty:
     mois_dispo = df_raw[df_raw['Année'].isin(selected_year)].sort_values('Mois_Num')['Mois_Nom'].unique()
     selected_month = st.sidebar.multiselect("Mois", options=list(mois_dispo), default=list(mois_dispo))
     
-    tech_list = ["Tous"] + sorted(df_raw['Technicien'].unique().tolist())
-    selected_tech = st.sidebar.selectbox("Technicien", options=tech_list)
-
     mask = (df_raw['Année'].isin(selected_year)) & (df_raw['Mois_Nom'].isin(selected_month))
-    if selected_tech != "Tous":
-        mask = mask & (df_raw['Technicien'] == selected_tech)
-    
     df_f = df_raw[mask]
 
     # --- AFFICHAGE KPI ---
     st.title("📊 Arkeos Support Dashboard")
-    st.subheader("Analyse Croisée : Actifs & Comptes de Service")
+    st.subheader("Analyse de Performance Hebdomadaire")
     
     total = len(df_f)
     repeats = df_f['Is_Repeat'].sum()
@@ -97,7 +86,21 @@ if df_raw is not None and not df_raw.empty:
 
     st.markdown("---")
 
-    # --- DOUBLE ANALYSE : ACTIFS VS COMPTES ---
+    # --- NOUVEAU : TENDANCE RDR PAR SEMAINE ---
+    st.subheader("📈 Tendance RDR % par Semaine")
+    # On groupe par la colonne 'Semaine' créée plus haut
+    trend_week = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
+    trend_week['RDR %'] = trend_week['Is_Repeat'] * 100
+    
+    fig_week = px.line(trend_week, x='Semaine', y='RDR %', markers=True, 
+                        line_shape='linear', color_discrete_sequence=['#007BFF'],
+                        labels={'Semaine': 'Semaine de l\'année', 'RDR %': 'Taux de Repeat (%)'})
+    fig_week.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_week, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- ANALYSE ACTIFS ET COMPTES ---
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -112,27 +115,10 @@ if df_raw is not None and not df_raw.empty:
         st.plotly_chart(px.bar(top_comptes, x='Nb', y='Compte', orientation='h', 
                                color_discrete_sequence=['#3498DB']), use_container_width=True)
 
-    st.markdown("---")
-
-    # --- TENDANCE ET TECHNICIENS ---
-    col_c, col_d = st.columns(2)
-    with col_c:
-        st.subheader("📈 Tendance RDR %")
-        trend = df_f.groupby('Periode')['Is_Repeat'].mean().reset_index()
-        trend['RDR %'] = trend['Is_Repeat'] * 100
-        st.plotly_chart(px.line(trend, x='Periode', y='RDR %', markers=True), use_container_width=True)
-
-    with col_d:
-        st.subheader("👨‍🔧 RDR % par Technicien")
-        tech_rdr = df_f.groupby('Technicien')['Is_Repeat'].mean().reset_index()
-        tech_rdr['RDR %'] = tech_rdr['Is_Repeat'] * 100
-        st.plotly_chart(px.bar(tech_rdr.nlargest(10, 'RDR %'), x='RDR %', y='Technicien', 
-                               orientation='h', color_discrete_sequence=['#FFA500']), use_container_width=True)
-
     # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_complet_arkeos.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_weekly_report.xlsx")
 
 else:
-    st.error("Erreur : Les colonnes 'Compte de service' ou 'Actif client principal de l'incident' sont introuvables.")
+    st.error("Erreur de chargement des données ou colonnes manquantes.")
