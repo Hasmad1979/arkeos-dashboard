@@ -30,7 +30,7 @@ def load_data():
     df = df.rename(columns=mapping)
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # Nettoyage des techniciens : on garde les noms propres, on exclut les CC-WO
+    # Nettoyage des techniciens
     if 'Technicien' in df.columns:
         df = df[df['Technicien'].str.contains(' ', na=False)]
         df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
@@ -50,7 +50,6 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
-    # Dimensions temporelles
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
     df['Mois_Num'] = df['Date_Debut'].dt.month
@@ -61,29 +60,25 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None and not df_raw.empty:
-    # --- FILTRES (SIDEBAR) ---
+    # --- FILTRES ---
     st.sidebar.header("🔍 Filtres")
-    
     years = sorted(df_raw['Année'].unique(), reverse=True)
     selected_year = st.sidebar.multiselect("Année", options=years, default=years)
     
     mois_dispo = df_raw[df_raw['Année'].isin(selected_year)].sort_values('Mois_Num')['Mois_Nom'].unique()
     selected_month = st.sidebar.multiselect("Mois", options=list(mois_dispo), default=list(mois_dispo))
     
-    # REINTEGRATION DU FILTRE PROPRIETAIRE
     tech_list = ["Tous"] + sorted(df_raw['Technicien'].unique().tolist())
     selected_tech = st.sidebar.selectbox("Propriétaire (Technicien)", options=tech_list)
 
-    # Application des filtres
     mask = (df_raw['Année'].isin(selected_year)) & (df_raw['Mois_Nom'].isin(selected_month))
     if selected_tech != "Tous":
         mask = mask & (df_raw['Technicien'] == selected_tech)
     
     df_f = df_raw[mask]
 
-    # --- DASHBOARD ---
+    # --- KPI ---
     st.title("📊 Arkeos Support Dashboard")
-    st.subheader(f"Analyse Hebdomadaire - Filtre : {selected_tech}")
     
     total = len(df_f)
     repeats = df_f['Is_Repeat'].sum()
@@ -98,37 +93,46 @@ if df_raw is not None and not df_raw.empty:
 
     st.markdown("---")
 
-    # --- TENDANCE HEBDOMADAIRE ---
+    # --- TENDANCE HEBDOMADAIRE AVEC % AFFICHÉS ---
     st.subheader("📈 Tendance RDR % par Semaine")
     trend_week = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
-    trend_week['RDR %'] = trend_week['Is_Repeat'] * 100
+    trend_week['RDR %'] = (trend_week['Is_Repeat'] * 100).round(1)
     
-    fig_week = px.line(trend_week, x='Semaine', y='RDR %', markers=True, 
+    fig_week = px.line(trend_week, x='Semaine', y='RDR %', text='RDR %', markers=True,
                         color_discrete_sequence=['#007BFF'])
+    # On place le texte au-dessus des points
+    fig_week.update_traces(textposition="top center")
     fig_week.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_week, use_container_width=True)
 
     st.markdown("---")
 
-    # --- ANALYSE ACTIFS ET COMPTES ---
+    # --- TOP ACTIFS ET COMPTES ---
     col_a, col_b = st.columns(2)
 
     with col_a:
         st.subheader("📠 Top 10 Actifs (Machines)")
         top_actifs = df_f[df_f['Is_Repeat']==1].groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-        st.plotly_chart(px.bar(top_actifs, x='Nb', y='Actif_SN', orientation='h', 
-                               color_discrete_sequence=['#E74C3C']), use_container_width=True)
+        # Calcul du % de contribution aux repeats
+        top_actifs['% du total'] = (top_actifs['Nb'] / repeats * 100).round(1).astype(str) + '%' if repeats > 0 else "0%"
+        
+        fig_actifs = px.bar(top_actifs, x='Nb', y='Actif_SN', orientation='h', text='% du total',
+                            color_discrete_sequence=['#E74C3C'])
+        st.plotly_chart(fig_actifs, use_container_width=True)
 
     with col_b:
         st.subheader("🏢 Top 10 Comptes de Service")
         top_comptes = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
-        st.plotly_chart(px.bar(top_comptes, x='Nb', y='Compte', orientation='h', 
-                               color_discrete_sequence=['#3498DB']), use_container_width=True)
+        top_comptes['% du total'] = (top_comptes['Nb'] / repeats * 100).round(1).astype(str) + '%' if repeats > 0 else "0%"
+        
+        fig_comptes = px.bar(top_comptes, x='Nb', y='Compte', orientation='h', text='% du total',
+                             color_discrete_sequence=['#3498DB'])
+        st.plotly_chart(fig_comptes, use_container_width=True)
 
     # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_filtered_report.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "arkeos_report_7j.xlsx")
 
 else:
-    st.error("Données introuvables. Vérifiez le fichier source.")
+    st.error("Données introuvables ou colonnes incorrectes.")
