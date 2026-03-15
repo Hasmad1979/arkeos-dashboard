@@ -2,18 +2,12 @@ credentials:
   usernames:
     admin:
       email: admin@arkeos.com
-      name: Administrateur Arkeos
-      password: XXX # On va générer un hash ici à l'étape 3
-    technicien1:
-      email: tech@arkeos.com
-      name: Tech Support
-      password: import streamlit_authenticator as stauth
-# Remplace 'mon_mot_de_passe' par celui que tu veux
-print(stauth.Hasher(['votre_mot_de_passe_ici']).generate())
+      name: Administrateur
+      password: 'MADLAL19791979'
 cookie:
   expiry_days: 30
-  key: some_signature_key # Change ceci par une phrase aléatoire
-  name: arkeos_auth_cookie
+  key: arkeos_secret_key_2026
+  name: arkeos_auth
 preauthorized:
   emails:
-    - m.dislog@client.com
+    - tech@arkeos.com
