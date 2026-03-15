@@ -8,7 +8,7 @@ import plotly.express as px
 # 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
 
-# --- STYLE CSS PERSONNALISÉ ---
+# --- STYLE CSS ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -32,7 +32,7 @@ def load_data():
         return None
     df = pd.read_csv(file_name)
     
-    # Renommage incluant le Type de Panne détecté sur votre Excel
+    # Renommage des colonnes selon votre Excel
     df = df.rename(columns={
         "Numéro de l'incident": "ID", 
         "Actifs du client": "SN", 
@@ -58,6 +58,7 @@ def load_data():
 
 df_raw = load_data()
 
+# --- BLOC PRINCIPAL ---
 if df_raw is not None:
     noms_mois = {1:'Janvier', 2:'Février', 3:'Mars', 4:'Avril', 5:'Mai', 6:'Juin', 
                  7:'Juillet', 8:'Août', 9:'Septembre', 10:'Octobre', 11:'Novembre', 12:'Décembre'}
@@ -79,6 +80,7 @@ if df_raw is not None:
     techs = sorted(df_raw['Technicien'].astype(str).unique().tolist())
     sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
     
+    # Application des filtres
     df_f = df_raw[
         (df_raw['Date'].dt.year.isin(sel_years)) & 
         (df_raw['Mois_Nom'].isin(sel_months_names)) &
@@ -109,6 +111,7 @@ if df_raw is not None:
             evol = evol.reset_index()
             evol['Mois_Label'] = evol['Mois_Num'].map(noms_mois)
             
+            # Correction de la syntaxe f-string qui causait l'erreur
             labels = [f"{v:.1f}%" for v in evol['Is_Repeat']]
             fig_evol = px.line(evol, x='Mois_Label', y='Is_Repeat', markers=True, text=labels)
             fig_evol.update_traces(line_color='#004a99', line_width=3, textposition="top center")
@@ -121,7 +124,6 @@ if df_raw is not None:
         with col_left:
             with st.container(border=True):
                 st.subheader("🛠️ Top 10 Types de Panne")
-                # Groupement par la colonne "Panne" que nous avons renommée plus haut
                 top_p = df_f[df_f['Is_Repeat'] == 1].groupby('Panne').size().reset_index(name='Repeats')
                 top_p = top_p.sort_values(by='Repeats', ascending=True).tail(10)
                 
@@ -138,4 +140,20 @@ if df_raw is not None:
                 
                 if not top_sn.empty:
                     fig_s = px.bar(top_sn, x='Repeats', y='SN', orientation='h', text='Repeats', color_discrete_sequence=['#ff4b4b'])
-                    fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=400, margin=dict(l=0, r=40,
+                    fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=400, margin=dict(l=0, r=40, t=10, b=10), plot_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+
+        # --- 4. LISTE DÉTAILLÉE ---
+        with st.expander("🔍 Liste détaillée des Repeats"):
+            st.dataframe(df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Panne', 'Date']], use_container_width=True)
+
+        # --- 5. EXPORT ---
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_f.to_excel(writer, index=False)
+        st.sidebar.download_button("📥 Télécharger Rapport (.xlsx)", buffer.getvalue(), "Arkeos_Performance.xlsx")
+
+    else:
+        st.warning("Aucune donnée pour cette sélection.")
+else:
+    st.error("❌ Fichier 'data_dynamics_brute.csv.csv' introuvable.")
