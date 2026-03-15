@@ -88,7 +88,7 @@ if df_raw is not None:
     df_f = df_raw[mask]
 
     # --- DASHBOARD ---
-    st.title("📊 Arkeos Support Dashboard")
+    st.title("📊 Arkeos Support Technique Dashboard")
     st.subheader(f"Période : {', '.join(selected_year)} | Technicien : {selected_tech}")
     
     total = len(df_f)
