@@ -21,7 +21,7 @@ def load_data():
         "Actifs du client": "SN", 
         "Owner": "Technicien", 
         "Créé le": "Date",
-        "Type d'incident": "Panne" 
+        "Type d'incident 2": "Panne" 
     }
     df = df.rename(columns=mapping)
     
