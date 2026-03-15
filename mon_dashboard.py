@@ -84,7 +84,7 @@ if df is not None:
     rdr = (nb_reps / total * 100) if total > 0 else 0
     fttr = 100 - rdr
 
-    st.title("📠 Arkeos Performance Télécopieurs")
+    st.title("📠 Arkeos Technical Support Dashbord")
     
     k1, k2, k3, k4 = st.columns(4)
     k1.markdown(f'<div class="kpi-card"><div class="kpi-label">Interventions</div><div class="value-blue">{total:,}</div></div>', unsafe_allow_html=True)
