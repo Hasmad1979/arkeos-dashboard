@@ -9,7 +9,7 @@ from PIL import Image
 # 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="Arkeos Support Pro", layout="wide")
 
-# Thème visuel personnalisé (CSS)
+# Style CSS pour un rendu professionnel
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -24,7 +24,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CHARGEMENT ET NETTOYAGE DES DONNÉES
+# 2. CHARGEMENT ET CALCULS
 @st.cache_data
 def load_data():
     file_name = "data_dynamics_brute.csv.csv" 
@@ -33,7 +33,6 @@ def load_data():
     
     df = pd.read_csv(file_name)
 
-    # Mapping des colonnes
     mapping = {
         "Numéro d'ordre de travail": "ID",
         "Propriétaire": "Technicien",
@@ -45,10 +44,10 @@ def load_data():
     df = df.rename(columns=mapping)
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # On garde les lignes avec Actif et Date (Indispensable pour le RDR)
+    # On garde les lignes indispensables pour le calcul RDR
     df = df.dropna(subset=['Date_Debut', 'Actif_SN'])
 
-    # CALCUL REPEAT (7 JOURS OUVRES)
+    # --- CALCUL REPEAT (7 JOURS OUVRES) ---
     df = df.sort_values(['Actif_SN', 'Date_Debut'])
     df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
     
@@ -70,12 +69,13 @@ def load_data():
 
 df_raw = load_data()
 
-# 3. INTERFACE (SIDEBAR ET LOGO)
+# 3. INTERFACE ET FILTRES
 if df_raw is not None:
     with st.sidebar:
+        # Logo agrandi
         try:
             logo = Image.open('download.png')
-            st.image(logo, width=280) # Logo bien visible
+            st.image(logo, width=280) 
         except:
             st.title("ARKEOS")
         
@@ -85,62 +85,69 @@ if df_raw is not None:
         years = sorted(df_raw['Année'].unique(), reverse=True)
         sel_year = st.multiselect("Année", options=years, default=years)
         
-        # Filtrage intelligent des techniciens (exclut les codes CC-WO de la liste)
+        # Nettoyage de la liste tech pour le filtre (exclut les codes CC-WO)
         all_techs = df_raw['Technicien'].dropna().unique()
         clean_techs = sorted([t for t in all_techs if " " in str(t) and not str(t).startswith("CC-WO")])
         sel_tech = st.selectbox("Technicien", options=["Tous"] + clean_techs)
 
-        # Bouton d'export en bas de sidebar
+        # Export Excel
         st.markdown("---")
         buf = io.BytesIO()
         df_raw.to_excel(buf, index=False)
-        st.download_button("📥 Export Excel", buf.getvalue(), "reporting_arkeos.xlsx")
+        st.download_button("📥 Export complet (Excel)", buf.getvalue(), "reporting_arkeos.xlsx")
 
-    # 4. DASHBOARD - VUE PRINCIPALE
+    # 4. AFFICHAGE DES RÉSULTATS
     st.title("📊 Arkeos Support Technique Dashboard")
     
-    # Application des filtres au DataFrame
+    # Application des filtres
     mask = df_raw['Année'].isin(sel_year)
     if sel_tech != "Tous":
         mask = mask & (df_raw['Technicien'] == sel_tech)
     df_f = df_raw[mask]
 
-    st.markdown(f"**Période :** {', '.join(sel_year)} | **Technicien :** {sel_tech}")
+    if not df_f.empty:
+        # KPI Row
+        total_int = len(df_f)
+        repeats = df_f['Is_Repeat'].sum()
+        rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
+        fttr_rate = 100 - rdr_rate
 
-    # KPI Row
-    total_int = len(df_f)
-    repeats = df_f['Is_Repeat'].sum()
-    rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
-    fttr_rate = 100 - rdr_rate if total_int > 0 else 0
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Interventions", f"{total_int:,}")
+        c2.metric("RDR % (7j)", f"{rdr_rate:.1f}%")
+        c3.metric("FTTR %", f"{fttr_rate:.1f}%")
+        c4.metric("Nb Repeats", f"{repeats:,}")
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interventions", f"{total_int:,}")
-    c2.metric("RDR % (7j)", f"{rdr_rate:.1f}%")
-    c3.metric("FTTR %", f"{fttr_rate:.1f}%")
-    c4.metric("Nb Repeats", f"{repeats:,}")
+        st.markdown("---")
 
-    st.markdown("---")
+        # GRAPHIQUE TENDANCE
+        st.subheader("📈 Tendance RDR % par Semaine")
+        trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
+        trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
+        fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True, color_discrete_sequence=['#1E3A8A'])
+        fig_trend.update_traces(textposition="top center")
+        st.plotly_chart(fig_trend, use_container_width=True)
 
-    # GRAPHIQUE TENDANCE
-    st.subheader("📈 Tendance RDR % par Semaine")
-    trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
-    trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
-    
-    fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True, color_discrete_sequence=['#1E3A8A'])
-    fig_trend.update_traces(textposition="top center")
-    st.plotly_chart(fig_trend, use_container_width=True)
-
-    # BAS DE PAGE - TOP ANALYSE
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("📠 Top 10 Actifs (Machines critiques)")
-        top_a = df_f[df_f['Is_Repeat']==1].groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-        st.plotly_chart(px.bar(top_a, x='Nb', y='Actif_SN', orientation='h', color_discrete_sequence=['#E74C3C']), use_container_width=True)
-    
-    with col_b:
-        st.subheader("🏢 Top 10 Comptes (Sites)")
-        top_c = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
-        st.plotly_chart(px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#3498DB']), use_container_width=True)
-
+        # TOP ANALYSE
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.subheader("📠 Top 10 Actifs (Repeats)")
+            # Correction ici : on s'assure de ne filtrer que les repeats existants
+            df_reps = df_f[df_f['Is_Repeat'] == 1]
+            if not df_reps.empty:
+                top_a = df_reps.groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
+                fig_a = px.bar(top_a, x='Nb', y='Actif_SN', orientation='h', color_discrete_sequence=['#E74C3C'])
+                st.plotly_chart(fig_a, use_container_width=True)
+            else:
+                st.write("Aucun repeat détecté sur cette sélection.")
+        
+        with col_b:
+            st.subheader("🏢 Top 10 Comptes (Sites)")
+            if not df_reps.empty:
+                top_c = df_reps.groupby('Compte').size().nlargest(10).reset_index(name='Nb')
+                fig_c = px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#3498DB'])
+                st.plotly_chart(fig_c, use_container_width=True)
+    else:
+        st.warning("Aucune donnée disponible pour les filtres sélectionnés.")
 else:
-    st.error("Fichier de données non trouvé. Vérifiez la racine du projet.")
+    st.error("Le fichier 'data_dynamics_brute.csv.csv' est introuvable.")
