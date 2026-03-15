@@ -75,7 +75,7 @@ if df is not None:
         st.download_button("📥 Télécharger Excel", output.getvalue(), file_name="Arkeos_Repeats.xlsx")
 
     # 4. EN-TÊTE ET KPI
-    st.title("📠 Arkeos Technical Intelligence")
+    st.title("📠 Arkeos Technical Support Dashboard")
     
     total, nb_reps = len(df_f), df_f['Is_Repeat'].sum()
     rdr = (nb_reps / total * 100) if total > 0 else 0
@@ -119,14 +119,6 @@ if df is not None:
         fig_t.update_layout(plot_bgcolor='white', height=300)
         st.plotly_chart(fig_t, use_container_width=True)
 
-    with col_t2:
-        st.subheader("🏆 Top Performers (FTTR %)")
-        tech_perf = df_f.groupby('Technicien')['Is_Repeat'].agg(['count', 'mean']).reset_index()
-        tech_perf['FTTR %'] = (1 - tech_perf['mean']) * 100
-        top_techs = tech_perf[tech_perf['count'] > 5].nlargest(5, 'FTTR %')
-        fig_p = px.bar(top_techs, x='FTTR %', y='Technicien', orientation='h', color_discrete_sequence=['#16A34A'])
-        fig_p.update_layout(plot_bgcolor='white', height=300)
-        st.plotly_chart(fig_p, use_container_width=True)
 
     # 7. ANALYSE DES IMPACTS AVEC COUNTS
     st.subheader("🚨 Analyse détaillée des Repeats")
