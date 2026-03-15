@@ -1,10 +1,11 @@
 import streamlit as st
 import streamlit_authenticator as stauth
 
-st.set_page_config(page_title="Arkeos Tech Support", layout="wide")
+# 1. Configuration de la page
+st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
 
-# On définit les utilisateurs directement ici
-# Hash pour 'Arkeos2026'
+# 2. On définit l'utilisateur directement dans le code (plus de fichier YAML externe)
+# Le mot de passe ici est : Arkeos2026
 credentials = {
     'usernames': {
         'admin': {
@@ -15,24 +16,35 @@ credentials = {
     }
 }
 
-# Initialisation
+# 3. Initialisation
 authenticator = stauth.Authenticate(
     credentials,
-    'arkeos_auth_cookie',
+    'arkeos_cookie',
     'arkeos_key',
     30
 )
 
-# Affichage Login
+# 4. Formulaire de login
 authenticator.login(location='main')
 
+# 5. La logique d'affichage
 if st.session_state["authentication_status"]:
+    # SI CONNECTÉ : On affiche ton dashboard
     authenticator.logout('Déconnexion', 'sidebar')
-    st.title("Arkeos Technical Support Dashboard")
-    st.success("Enfin connecté !")
-    # COLLE LA SUITE DE TON CODE ICI (Graphes, metrics, etc.)
+    
+    # --- DEBUT DE TON DASHBOARD ---
+    st.title("🏗️ Arkeos Technical Support Dashboard")
+    
+    # Tes métriques que j'ai vues sur ta photo
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Interventions", "2,700")
+    col2.metric("RDR % (7j)", "26.7%")
+    col3.metric("FTTR %", "73.3%")
+    
+    st.success("Connexion réussie ! Ton dashboard est ici.")
+    # --- FIN DE TON DASHBOARD ---
 
 elif st.session_state["authentication_status"] is False:
     st.error('Identifiant ou mot de passe incorrect')
 elif st.session_state["authentication_status"] is None:
-    st.warning('Veuillez entrer vos accès')
+    st.warning('Veuillez entrer vos accès pour voir le dashboard')
