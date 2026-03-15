@@ -16,13 +16,13 @@ def load_data():
     
     df = pd.read_csv(file_name)
 
-    # Mapping basé sur vos colonnes réelles
+    # Mapping strict selon vos colonnes réelles
     mapping = {
         "Numéro d'ordre de travail": "ID",
         "Propriétaire": "Technicien",
         "Type d'incident principal": "Panne",
         "Compte de service": "Compte",
-        "Actif client principal de l'incident": "Actif_SN", # La colonne clé
+        "Actif client principal de l'incident": "Actif_SN",
         "Date de création": "Date_Debut",
         "Date de fin": "Date_Fin"
     }
@@ -32,15 +32,14 @@ def load_data():
     # Conversion et nettoyage
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # Nettoyage des techniciens (on garde les noms, on vire les codes CC-WO)
+    # Nettoyage des techniciens pour ne garder que les noms propres
     if 'Technicien' in df.columns:
         df = df[df['Technicien'].str.contains(' ', na=False)]
         df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
     
-    df = df.dropna(subset=['Date_Debut', 'Actif_SN'])
+    df = df.dropna(subset=['Date_Debut', 'Actif_SN', 'Compte'])
 
     # --- CALCUL REPEAT (7 JOURS OUVRES PAR ACTIF/SN) ---
-    # On trie par machine (Actif_SN) pour suivre son historique propre
     df = df.sort_values(['Actif_SN', 'Date_Debut'])
     df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
     
@@ -51,11 +50,9 @@ def load_data():
         except: return np.nan
 
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
-    
-    # Marquage du Repeat si <= 7 jours ouvrés sur la MÊME machine
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
-    # Temps
+    # Dimensions temporelles
     df['Periode'] = df['Date_Debut'].dt.to_period('M').astype(str)
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
@@ -83,9 +80,9 @@ if df_raw is not None and not df_raw.empty:
     
     df_f = df_raw[mask]
 
-    # --- AFFICHAGE ---
+    # --- AFFICHAGE KPI ---
     st.title("📊 Arkeos Support Dashboard")
-    st.subheader("Analyse par Actif Client (SN)")
+    st.subheader("Analyse Croisée : Actifs & Comptes de Service")
     
     total = len(df_f)
     repeats = df_f['Is_Repeat'].sum()
@@ -94,21 +91,48 @@ if df_raw is not None and not df_raw.empty:
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Interventions", f"{total:,}")
-    c2.metric("RDR % (7j/Actif)", f"{rdr_rate:.1f}%")
+    c2.metric("RDR % (7j)", f"{rdr_rate:.1f}%")
     c3.metric("FTTR %", f"{fttr_rate:.1f}%")
     c4.metric("Nb Repeats", f"{repeats:,}")
 
     st.markdown("---")
 
-    # Nouveau graphique : Top Actifs à problèmes
-    st.subheader("📠 Top 10 Actifs (Machines avec le plus de Repeats)")
-    top_actifs = df_f[df_f['Is_Repeat']==1].groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-    st.plotly_chart(px.bar(top_actifs, x='Nb', y='Actif_SN', orientation='h', color_discrete_sequence=['#E74C3C']), use_container_width=True)
+    # --- DOUBLE ANALYSE : ACTIFS VS COMPTES ---
+    col_a, col_b = st.columns(2)
 
-    # Export
+    with col_a:
+        st.subheader("📠 Top 10 Actifs (Machines)")
+        top_actifs = df_f[df_f['Is_Repeat']==1].groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
+        st.plotly_chart(px.bar(top_actifs, x='Nb', y='Actif_SN', orientation='h', 
+                               color_discrete_sequence=['#E74C3C']), use_container_width=True)
+
+    with col_b:
+        st.subheader("🏢 Top 10 Comptes de Service")
+        top_comptes = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
+        st.plotly_chart(px.bar(top_comptes, x='Nb', y='Compte', orientation='h', 
+                               color_discrete_sequence=['#3498DB']), use_container_width=True)
+
+    st.markdown("---")
+
+    # --- TENDANCE ET TECHNICIENS ---
+    col_c, col_d = st.columns(2)
+    with col_c:
+        st.subheader("📈 Tendance RDR %")
+        trend = df_f.groupby('Periode')['Is_Repeat'].mean().reset_index()
+        trend['RDR %'] = trend['Is_Repeat'] * 100
+        st.plotly_chart(px.line(trend, x='Periode', y='RDR %', markers=True), use_container_width=True)
+
+    with col_d:
+        st.subheader("👨‍🔧 RDR % par Technicien")
+        tech_rdr = df_f.groupby('Technicien')['Is_Repeat'].mean().reset_index()
+        tech_rdr['RDR %'] = tech_rdr['Is_Repeat'] * 100
+        st.plotly_chart(px.bar(tech_rdr.nlargest(10, 'RDR %'), x='RDR %', y='Technicien', 
+                               orientation='h', color_discrete_sequence=['#FFA500']), use_container_width=True)
+
+    # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_par_actif.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_complet_arkeos.xlsx")
 
 else:
-    st.error("Erreur de chargement des données.")
+    st.error("Erreur : Les colonnes 'Compte de service' ou 'Actif client principal de l'incident' sont introuvables.")
