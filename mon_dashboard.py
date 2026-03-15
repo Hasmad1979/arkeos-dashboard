@@ -1,67 +1,156 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import numpy as np
 import os
+import io
+import plotly.express as px
+from PIL import Image
 
-st.set_page_config(page_title="Arkeos Support", layout="wide")
+# 1. CONFIGURATION DE LA PAGE
+st.set_page_config(page_title="Arkeos Support Performance", layout="wide")
 
-# Chargement sécurisé
+# Style Professionnel "Executive"
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    [data-testid="stMetricValue"] { font-size: 28px; color: #1E3A8A; font-weight: bold; }
+    div[data-testid="metric-container"] {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border: 1px solid #eef2f6;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. CHARGEMENT ET CALCULS
 @st.cache_data
-def load_and_clean():
-    file_path = "data_dynamics_brute.csv.csv"
-    if not os.path.exists(file_path):
+def load_data():
+    file_name = "data_dynamics_brute.csv.csv" 
+    if not os.path.exists(file_name):
         return None
     
-    df = pd.read_csv(file_path)
-    
-    # Renommage pour plus de clarté
-    df = df.rename(columns={
-        "Actif client principal de l'incident": "Actif_SN",
-        "Propriétaire": "Technicien",
-        "Date de création": "Date"
-    })
+    df = pd.read_csv(file_name)
 
-    # NETTOYAGE DES "nan"
-    df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
-    df = df[~df['Actif_SN'].isin(['nan', 'None', 'nan.0'])]
+    # Mapping des colonnes réelles
+    mapping = {
+        "Numéro d'ordre de travail": "ID",
+        "Propriétaire": "Technicien",
+        "Type d'incident principal": "Panne",
+        "Compte de service": "Compte",
+        "Actif client principal de l'incident": "Actif_SN",
+        "Date de création": "Date_Debut"
+    }
+    df = df.rename(columns=mapping)
     
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df['Semaine'] = df['Date'].dt.strftime('%Y-W%V')
+    # NETTOYAGE DES ACTIFS (Forcer en texte et supprimer les vides)
+    df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
+    df = df[~df['Actif_SN'].isin(['nan', 'None', 'nan.0', ''])]
+    
+    df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
+    df = df.dropna(subset=['Date_Debut'])
+
+    # CALCUL REPEAT (7 JOURS OUVRES)
+    df = df.sort_values(['Actif_SN', 'Date_Debut'])
+    df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
+    
+    def calc_working_days(row):
+        if pd.isnull(row['Date_Precedente']): return np.nan
+        try:
+            return np.busday_count(row['Date_Precedente'].date(), row['Date_Debut'].date())
+        except: return np.nan
+
+    df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
+    df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
+    
+    # Dimensions Temporelles
+    df['Année'] = df['Date_Debut'].dt.year.astype(str)
+    df['Mois'] = df['Date_Debut'].dt.strftime('%B')
+    df['Semaine'] = df['Date_Debut'].dt.strftime('%Y-W%V')
     
     return df
 
-df = load_and_clean()
+df_raw = load_data()
 
-if df is not None:
-    # Sidebar avec Logo et Filtres
+# 3. INTERFACE LATÉRALE
+if df_raw is not None:
     with st.sidebar:
-        if os.path.exists("download.png"):
-            st.image("download.png")
+        try:
+            # Logo Arkeos
+            logo = Image.open('download.png')
+            st.image(logo, width=280) 
+        except:
+            st.title("🏛️ ARKEOS")
+        
+        st.markdown("---")
         st.header("🔍 Filtres")
-        sel_tech = st.selectbox("Technicien", ["Tous"] + sorted(df['Technicien'].unique().tolist()))
+        
+        years = sorted(df_raw['Année'].unique(), reverse=True)
+        sel_year = st.multiselect("Année", options=years, default=years)
+        
+        all_techs = df_raw['Technicien'].dropna().unique()
+        # Filtre propre pour les noms de techniciens
+        clean_techs = sorted([t for t in all_techs if " " in str(t) and not str(t).startswith("CC-WO")])
+        sel_tech = st.selectbox("Technicien", options=["Tous"] + clean_techs)
 
-    # Filtrage
-    df_f = df if sel_tech == "Tous" else df[df['Technicien'] == sel_tech]
+        st.markdown("---")
+        # Export Excel rapide
+        buf = io.BytesIO()
+        df_raw.to_excel(buf, index=False)
+        st.download_button("📥 Export Excel", buf.getvalue(), "reporting_arkeos.xlsx")
 
-    # Dashboard
-    st.title("📊 Arkeos Support Technique")
+    # 4. AFFICHAGE DU DASHBOARD
+    st.title("📊 Arkeos Support Technique Dashboard")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📠 Top 10 Actifs (Sans nan)")
-        # On affiche uniquement les actifs réels
-        top_data = df_f['Actif_SN'].value_counts().nlargest(10).reset_index()
-        top_data.columns = ['Actif_SN', 'Nombre']
-        fig = px.bar(top_data, x='Nombre', y='Actif_SN', orientation='h', 
-                     color_discrete_sequence=['#E74C3C'])
-        fig.update_layout(yaxis={'type': 'category', 'categoryorder': 'total ascending'})
-        st.plotly_chart(fig, use_container_width=True)
+    mask = df_raw['Année'].isin(sel_year)
+    if sel_tech != "Tous":
+        mask = mask & (df_raw['Technicien'] == sel_tech)
+    df_f = df_raw[mask]
 
-    with col2:
-        st.subheader("📈 Tendance hebdomadaire")
-        trend = df_f.groupby('Semaine').size().reset_index(name='Interventions')
-        st.line_chart(trend.set_index('Semaine'))
+    if not df_f.empty:
+        # KPI Row
+        total_int = len(df_f)
+        repeats = df_f['Is_Repeat'].sum()
+        rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Interventions", f"{total_int:,}")
+        c2.metric("RDR % (7j)", f"{rdr_rate:.1f}%")
+        c3.metric("FTTR %", f"{100-rdr_rate:.1f}%")
+        c4.metric("Nb Repeats", f"{repeats:,}")
 
+        st.markdown("---")
+
+        # TENDANCE HEBDO AVEC %
+        st.subheader("📈 Tendance RDR % par Semaine")
+        trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
+        trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
+        fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True, color_discrete_sequence=['#1E3A8A'])
+        fig_trend.update_traces(textposition="top center")
+        st.plotly_chart(fig_trend, use_container_width=True)
+
+        # ANALYSE PAR ACTIF (NETTOYÉ)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.subheader("📠 Top 10 Actifs (Impact Repeats)")
+            df_reps = df_f[df_f['Is_Repeat'] == 1]
+            if not df_reps.empty:
+                top_a = df_reps.groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
+                fig_a = px.bar(top_a, x='Nb', y='Actif_SN', orientation='h', color_discrete_sequence=['#E74C3C'], text='Nb')
+                fig_a.update_layout(yaxis={'type': 'category', 'categoryorder': 'total ascending'})
+                st.plotly_chart(fig_a, use_container_width=True)
+            else:
+                st.info("Aucun repeat sur cette sélection.")
+        
+        with col_b:
+            st.subheader("🏢 Top 10 Comptes (Sites impactés)")
+            if not df_reps.empty:
+                top_c = df_reps.groupby('Compte').size().nlargest(10).reset_index(name='Nb')
+                fig_c = px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#3498DB'], text='Nb')
+                fig_c.update_layout(yaxis={'categoryorder': 'total ascending'})
+                st.plotly_chart(fig_c, use_container_width=True)
+    else:
+        st.warning("Aucune donnée pour les filtres sélectionnés.")
 else:
-    st.error("Fichier de données manquant ou corrompu.")
+    st.error("Le fichier 'data_dynamics_brute.csv.csv' est introuvable.")
