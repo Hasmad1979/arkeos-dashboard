@@ -4,10 +4,10 @@ import numpy as np
 import os
 import io
 import plotly.express as px
-from PIL import Image # Nécessaire pour charger le logo
+from PIL import Image
 
 # 1. CONFIGURATION DE LA PAGE
-st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
+st.set_page_config(page_title="Arkeos Support Dashboard Technique", layout="wide")
 
 @st.cache_data
 def load_data():
@@ -17,7 +17,6 @@ def load_data():
     
     df = pd.read_csv(file_name)
 
-    # Mapping strict selon vos colonnes réelles
     mapping = {
         "Numéro d'ordre de trav": "ID",
         "Propriétaire": "Technicien",
@@ -31,14 +30,12 @@ def load_data():
     df = df.rename(columns=mapping)
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     
-    # Nettoyage des techniciens
     if 'Technicien' in df.columns:
         df = df[df['Technicien'].str.contains(' ', na=False)]
         df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
     
     df = df.dropna(subset=['Date_Debut', 'Actif_SN', 'Compte'])
 
-    # --- CALCUL REPEAT (7 JOURS OUVRES PAR ACTIF) ---
     df = df.sort_values(['Actif_SN', 'Date_Debut'])
     df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
     
@@ -51,7 +48,6 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
-    # Dimensions temporelles
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
     df['Mois_Num'] = df['Date_Debut'].dt.month
@@ -63,19 +59,16 @@ df_raw = load_data()
 
 # --- BARRE LATÉRALE AVEC LOGO ET FILTRES ---
 if df_raw is not None:
-    # --- AJOUT DU LOGO ICI ---
+    # --- LOGO AGRANDI ---
     try:
-        # On charge l'image uploadée
         logo = Image.open('download.png')
-        # On l'affiche en haut de la sidebar, alignée à gauche, avec une largeur contrôlée
-        st.sidebar.image(logo, use_container_width=False, width=150) 
-        # Petit espace sous le logo pour respirer
+        # On affiche le logo en l'agrandissant à 250 pixels de largeur
+        st.sidebar.image(logo, use_container_width=False, width=250) 
         st.sidebar.markdown("---") 
     except FileNotFoundError:
-        # Si le fichier n'est pas trouvé, on n'affiche rien pour éviter de faire planter l'app
         pass
 
-    # --- FILTRES (Suite de la sidebar) ---
+    # --- FILTRES ---
     st.sidebar.header("🔍 Filtres")
     
     years = sorted(df_raw['Année'].unique(), reverse=True)
@@ -109,14 +102,13 @@ if df_raw is not None:
 
     st.markdown("---")
 
-    # --- TENDANCE HEBDOMADAIRE AVEC % AFFICHÉS ---
+    # --- TENDANCE HEBDOMADAIRE ---
     st.subheader("📈 Tendance RDR % par Semaine")
     trend_week = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
     trend_week['RDR %'] = (trend_week['Is_Repeat'] * 100).round(1)
     
     fig_week = px.line(trend_week, x='Semaine', y='RDR %', text='RDR %', markers=True,
                         color_discrete_sequence=['#007BFF'])
-    # On place le texte au-dessus des points
     fig_week.update_traces(textposition="top center")
     fig_week.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_week, use_container_width=True)
@@ -129,7 +121,6 @@ if df_raw is not None:
     with col_a:
         st.subheader("📠 Top 10 Actifs (Machines)")
         top_actifs = df_f[df_f['Is_Repeat']==1].groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-        # Calcul du % de contribution aux repeats
         top_actifs['% du total'] = (top_actifs['Nb'] / repeats * 100).round(1).astype(str) + '%' if repeats > 0 else "0%"
         
         fig_actifs = px.bar(top_actifs, x='Nb', y='Actif_SN', orientation='h', text='% du total',
@@ -145,7 +136,6 @@ if df_raw is not None:
                              color_discrete_sequence=['#3498DB'])
         st.plotly_chart(fig_comptes, use_container_width=True)
 
-    # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
     st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_arkeos.xlsx")
