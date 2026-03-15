@@ -92,7 +92,17 @@ if df_raw is not None:
         c1.metric("Interventions", f"{total_int:,}")
         c2.metric("Total Repeats", f"{total_rep:,}")
         c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%")
+        # 1. KPI
+        total_int = len(df_f)
+        total_rep = df_f['Is_Repeat'].sum()
+        repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
+        fttr_rate = 100 - repeat_rate # Le calcul du FTTR
 
+        c1, c2, c3, c4 = st.columns(4) # On passe à 4 colonnes
+        c1.metric("Interventions", f"{total_int:,}")
+        c2.metric("Total Repeats", f"{total_rep:,}")
+        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%", delta=f"{repeat_rate:.1f}%", delta_color="inverse")
+        c4.metric("FTTR Rate", f"{fttr_rate:.1f}%")
         # --- ÉVOLUTION MENSUELLE (CORRIGÉ) ---
         st.write("")
         with st.container(border=True):
