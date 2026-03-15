@@ -7,7 +7,9 @@ credentials:
     technicien1:
       email: tech@arkeos.com
       name: Tech Support
-      password: XXX
+      password: import streamlit_authenticator as stauth
+# Remplace 'mon_mot_de_passe' par celui que tu veux
+print(stauth.Hasher(['votre_mot_de_passe_ici']).generate())
 cookie:
   expiry_days: 30
   key: some_signature_key # Change ceci par une phrase aléatoire
