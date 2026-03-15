@@ -35,7 +35,7 @@ def load_data():
     # Mapping des colonnes
     df = df.rename(columns={
         "Actif client principal de l'incident": "Actif_SN",
-        "Propriétaire": "Team Leader",
+        "Propriétaire": "Technicien",
         "Date de création": "Date",
         "Compte de service": "Compte"
     })
