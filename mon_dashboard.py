@@ -14,50 +14,50 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     
-    # Lecture du fichier
     df = pd.read_csv(file_name)
     
-    # Mapping flexible pour éviter les KeyError
-    # On cherche les colonnes par mots-clés si le nom exact change
-    def find_col(keywords, default):
+    # Détection automatique des colonnes (évite les KeyError)
+    def find_col(keywords):
         for col in df.columns:
             if any(k.lower() in col.lower() for k in keywords):
                 return col
-        return default
+        return None
 
     mapping = {
-        find_col(["incident", "numéro"], "ID"): "ID",
-        find_col(["actifs", "client", "sn"], "SN"): "SN",
-        find_col(["owner", "technicien"], "Technicien"): "Technicien",
-        find_col(["création", "créé le"], "Date_Debut"): "Date_Debut",
-        find_col(["fin", "clôture"], "Date_Fin"): "Date_Fin",
-        find_col(["type", "panne"], "Panne"): "Panne",
-        find_col(["compte", "service"], "Compte"): "Compte"
+        find_col(["incident", "numéro"]): "ID",
+        find_col(["actifs", "client", "sn"]): "SN",
+        find_col(["owner", "technicien"]): "Technicien",
+        find_col(["création", "créé le"]): "Date_Debut",
+        find_col(["fin", "clôture"]): "Date_Fin",
+        find_col(["type", "panne"]): "Panne",
+        find_col(["compte", "service"]): "Compte"
     }
     
+    # Supprimer les entrées None du mapping et renommer
+    mapping = {k: v for k, v in mapping.items() if k is not None}
     df = df.rename(columns=mapping)
     
-    # Nettoyage et conversion dates
-    df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
-    df['Date_Fin'] = pd.to_datetime(df['Date_Fin'], errors='coerce')
+    # Conversion dates et nettoyage
+    for col in ['Date_Debut', 'Date_Fin']:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+    
     df = df.dropna(subset=['SN', 'Date_Debut'])
 
-    # --- CALCULS HORS WEEKENDS ---
+    # --- CALCULS RUN TIME HORS WEEKENDS ---
     def bus_mins(row):
-        if pd.isnull(row['Date_Debut']) or pd.isnull(row['Date_Fin']): return 0
+        if pd.isnull(row.get('Date_Debut')) or pd.isnull(row.get('Date_Fin')): return 0
         try:
-            # np.busday_count exclut les weekends
             d1, d2 = row['Date_Debut'].date(), row['Date_Fin'].date()
             if d1 > d2: return 0
-            # Durée brute en minutes
             total_mins = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
-            # On ne garde la durée que si elle est sur des jours ouvrés
+            # np.busday_count pour vérifier les jours ouvrés
             return total_mins if np.busday_count(d1, d2) >= 0 else 0
         except: return 0
 
     df['Duree_Mins'] = df.apply(bus_mins, axis=1)
     
-    # Calcul Repeat (22 jours ouvrés)
+    # --- CALCUL REPEAT (22 jours ouvrés) ---
     df = df.sort_values(['SN', 'Date_Debut'])
     df['Date_Prev'] = df.groupby('SN')['Date_Debut'].shift(1)
     
@@ -74,24 +74,20 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None:
-    # --- FILTRES ---
     st.sidebar.title("🎮 Filtres")
     
-    years = sorted(df_raw['Date_Debut'].dt.year.unique(), reverse=True)
-    sel_years = st.sidebar.multiselect("Années", years, default=years)
-    
-    # Sécurité pour les filtres si colonnes manquantes
-    def get_filter(col_name, label):
-        if col_name in df_raw.columns:
-            vals = sorted(df_raw[col_name].astype(str).unique())
-            return st.sidebar.multiselect(label, vals, default=vals)
+    # Filtres dynamiques
+    def multi_filter(col, label):
+        if col in df_raw.columns:
+            options = sorted(df_raw[col].astype(str).unique())
+            return st.sidebar.multiselect(label, options, default=options)
         return []
 
-    sel_techs = get_filter('Technicien', "Techniciens")
-    sel_comptes = get_filter('Compte', "Comptes de Service")
+    sel_techs = multi_filter('Technicien', "Techniciens")
+    sel_comptes = multi_filter('Compte', "Comptes de Service")
 
-    # Application filtres
-    mask = df_raw['Date_Debut'].dt.year.isin(sel_years)
+    # Filtrage des données
+    mask = pd.Series([True] * len(df_raw))
     if sel_techs: mask &= df_raw['Technicien'].isin(sel_techs)
     if sel_comptes: mask &= df_raw['Compte'].isin(sel_comptes)
     df_f = df_raw[mask].copy()
@@ -99,19 +95,15 @@ if df_raw is not None:
     st.title("📊 Arkeos Support Dashboard")
     
     if not df_f.empty:
-        # --- KPI ---
-        total_int = len(df_f)
-        total_rep = df_f['Is_Repeat'].sum()
-        run_time_h = df_f['Duree_Mins'].sum() / 60
-        avg_time_m = df_f['Duree_Mins'].mean()
-
+        # KPI
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("FTTR Rate", f"{(100 - (total_rep/total_int*100)):.1f}%")
-        c3.metric("Run Time Total", f"{run_time_h:,.0f} h")
-        c4.metric("Avg Time", f"{avg_time_m:.1f} min")
+        c1.metric("Interventions", f"{len(df_f):,}")
+        rep_rate = (df_f['Is_Repeat'].sum() / len(df_f)) * 100
+        c2.metric("Taux Repeat", f"{rep_rate:.1f}%")
+        c3.metric("Run Time Total", f"{(df_f['Duree_Mins'].sum()/60):,.0f} h")
+        c4.metric("Avg Time", f"{df_f['Duree_Mins'].mean():.1f} min")
 
-        # --- GRAPHIQUES ---
+        # Graphiques
         st.markdown("---")
         col_l, col_r = st.columns(2)
         
@@ -127,12 +119,7 @@ if df_raw is not None:
                 top_c = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
                 st.plotly_chart(px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#ff4b4b']), use_container_width=True)
 
-        # Export Excel
+        # Export
         buffer = io.BytesIO()
         df_f[df_f['Is_Repeat']==1].to_excel(buffer, index=False)
-        st.sidebar.markdown("---")
-        st.sidebar.download_button("📥 Liste des Repeats (Excel)", buffer.getvalue(), "repeats_arkeos.xlsx")
-    else:
-        st.warning("Aucune donnée disponible pour cette sélection.")
-else:
-    st.error("Le fichier 'data_dynamics_brute.csv.csv' est introuvable sur votre GitHub.")
+        st.sidebar.download_button("📥 Télécharger les Repeats (Excel)", buffer.getvalue(), "repeats_arkeos.xlsx")
