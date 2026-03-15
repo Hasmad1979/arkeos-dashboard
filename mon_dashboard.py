@@ -2,135 +2,153 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-from PIL import Image
+import io
 
-# 1. CONFIGURATION ET STYLE CSS CUSTOM
-st.set_page_config(page_title="Arkeos Support Pro", layout="wide")
+# 1. CONFIGURATION ET DESIGN
+st.set_page_config(page_title="Arkeos Performance Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* Style pour les cartes KPI cliquables */
-    .kpi-card {
-        background-color: white;
-        padding: 20px;
+    /* Cartes KPI interactives */
+    div.stButton > button {
+        width: 100%;
         border-radius: 12px;
+        height: 100px;
         border: 1px solid #e0e6ed;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        text-align: center;
-        transition: transform 0.2s, border-color 0.2s;
-        cursor: pointer;
+        background-color: white;
+        transition: all 0.3s;
     }
-    .kpi-card:hover {
-        transform: translateY(-5px);
+    div.stButton > button:hover {
         border-color: #1E3A8A;
         background-color: #f8fbff;
+        transform: translateY(-3px);
     }
-    .kpi-title { font-size: 16px; color: #64748b; font-weight: 500; }
-    .kpi-value { font-size: 32px; color: #1E3A8A; font-weight: 700; margin: 10px 0; }
-    .kpi-icon { font-size: 24px; margin-bottom: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CHARGEMENT DES DONNÉES NETTOYÉES
+# 2. CHARGEMENT ET TRAITEMENT DES DONNÉES
 @st.cache_data
 def load_data():
     file_path = "data_dynamics_brute.csv.csv"
     if not os.path.exists(file_path): return None
     df = pd.read_csv(file_path)
     
-    # Mapping et Nettoyage
+    # Nettoyage et Renommage
     df = df.rename(columns={
         "Actif client principal de l'incident": "Actif_SN",
         "Propriétaire": "Technicien",
-        "Date de création": "Date"
+        "Date de création": "Date",
+        "Compte de service": "Compte"
     })
     
-    # Suppression des 'nan' et formatage texte
+    # Forcer l'Actif en texte pour éviter les erreurs d'affichage
     df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
     df = df[~df['Actif_SN'].isin(['nan', 'None', 'nan.0', ''])]
     
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    # Simulation de la logique RDR (Repeat dans les 7 jours)
+    df = df.dropna(subset=['Date'])
+    
+    # Calcul du RDR (Repeat dans les 7 jours)
     df = df.sort_values(['Actif_SN', 'Date'])
     df['Diff'] = df.groupby('Actif_SN')['Date'].diff().dt.days
     df['Is_Repeat'] = (df['Diff'] <= 7).astype(int)
+    
+    # Dimensions temporelles
+    df['Année'] = df['Date'].dt.year.astype(str)
+    df['Mois'] = df['Date'].dt.strftime('%B')
+    df['Semaine'] = df['Date'].dt.strftime('%Y-W%V')
     
     return df
 
 df = load_data()
 
-# 3. BARRE LATÉRALE (SIDEBAR)
+# 3. BARRE LATÉRALE : LOGO ET FILTRES
 if df is not None:
     with st.sidebar:
         if os.path.exists("download.png"):
-            st.image("download.png", use_container_width=True) # Logo Arkeos
+            st.image("download.png", use_container_width=True)
         
         st.markdown("---")
         st.header("🔍 Filtres")
-        tech_list = ["Tous"] + sorted(df['Technicien'].unique().tolist())
-        sel_tech = st.selectbox("Technicien", tech_list)
+        
+        # Filtre Année et Mois
+        years = sorted(df['Année'].unique(), reverse=True)
+        sel_year = st.multiselect("Année", years, default=years[:1])
+        
+        months = ["January", "February", "March", "April", "May", "June", 
+                  "July", "August", "September", "October", "November", "December"]
+        avail_months = [m for m in months if m in df['Mois'].unique()]
+        sel_month = st.multiselect("Mois", avail_months, default=avail_months)
+        
+        # Filtre Technicien
+        techs = ["Tous"] + sorted(df['Technicien'].unique().tolist())
+        sel_tech = st.selectbox("Technicien", techs)
 
     # Application des filtres
-    df_f = df if sel_tech == "Tous" else df[df['Technicien'] == sel_tech]
+    mask = (df['Année'].isin(sel_year)) & (df['Mois'].isin(sel_month))
+    if sel_tech != "Tous":
+        mask &= (df['Technicien'] == sel_tech)
+    df_f = df[mask]
 
-    # 4. CALCUL DES KPI
+    # 4. CALCULS DES KPI
     total_int = len(df_f)
-    nb_repeats = df_f['Is_Repeat'].sum()
-    rdr_rate = (nb_repeats / total_int * 100) if total_int > 0 else 0
+    repeats = df_f['Is_Repeat'].sum()
+    rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
     fttr_rate = 100 - rdr_rate
 
-    # 5. AFFICHAGE DES KPI PROFESSIONNELS
+    # 5. AFFICHAGE DES KPI CLIQUABLES
     st.title("📊 Arkeos Support Technique Dashboard")
     
-    # Initialisation du choix de vue via session_state
     if 'view' not in st.session_state:
         st.session_state.view = "Global"
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        if st.button(f"📄 Total Interventions\n{total_int:,}", key="btn_total", use_container_width=True):
-            st.session_state.view = "Global"
-    
-    with col2:
-        # Couleur rouge pour le RDR (Alerte)
-        if st.button(f"🔄 RDR % (Repeats)\n{rdr_rate:.1f}%", key="btn_rdr", use_container_width=True):
-            st.session_state.view = "RDR"
-
-    with col3:
-        # Couleur verte pour le FTTR (Performance)
-        if st.button(f"✅ FTTR %\n{fttr_rate:.1f}%", key="btn_fttr", use_container_width=True):
-            st.session_state.view = "FTTR"
-
-    with col4:
-        st.button(f"⚠️ Nb Repeats\n{nb_repeats}", key="btn_nb", use_container_width=True)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button(f"Interventions\n{total_int:,}"): st.session_state.view = "Global"
+    with c2:
+        if st.button(f"RDR % (7j)\n{rdr_rate:.1f}%"): st.session_state.view = "RDR"
+    with c3:
+        if st.button(f"FTTR %\n{fttr_rate:.1f}%"): st.session_state.view = "Global"
+    with c4:
+        if st.button(f"Nb Repeats\n{repeats}"): st.session_state.view = "RDR"
 
     st.markdown("---")
 
-    # 6. VUES DYNAMIQUES SELON LE CLIC
+    # 6. GRAPHIQUE DE TENDANCE (% PAR SEMAINE)
+    st.subheader("📈 Tendance RDR % par Semaine (7j)")
+    trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
+    trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
+    
+    fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True,
+                        color_discrete_sequence=['#1E3A8A'])
+    fig_trend.update_traces(textposition="top center")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    # 7. VUE DÉTAILLÉE (DYNAMIQUE AU CLIC)
     if st.session_state.view == "RDR":
-        st.subheader("🚨 Analyse approfondie des Repeats (RDR)")
-        # On montre les actifs qui causent le plus de retours
+        st.subheader("🚨 Analyse des Impacts (Repeats)")
         df_reps = df_f[df_f['Is_Repeat'] == 1]
-        top_a = df_reps['Actif_SN'].value_counts().nlargest(10).reset_index()
-        fig = px.bar(top_a, x='count', y='Actif_SN', orientation='h', title="Top 10 Actifs à Problèmes", color_discrete_sequence=['#E74C3C'])
-        st.plotly_chart(fig, use_container_width=True)
         
-    elif st.session_state.view == "FTTR":
-        st.subheader("🏆 Excellence : Succès du premier coup (FTTR)")
-        # On montre les techniciens avec le meilleur taux
-        tech_perf = df_f.groupby('Technicien')['Is_Repeat'].mean().reset_index()
-        tech_perf['FTTR'] = (1 - tech_perf['Is_Repeat']) * 100
-        fig = px.bar(tech_perf.nlargest(10, 'FTTR'), x='FTTR', y='Technicien', orientation='h', title="Top 10 Techniciens Performants", color_discrete_sequence=['#2ECC71'])
-        st.plotly_chart(fig, use_container_width=True)
-        
-    else:
-        # Vue globale par défaut
-        st.subheader("📈 Tendance Générale")
-        df_f['Semaine'] = df_f['Date'].dt.strftime('%Y-W%V')
-        trend = df_f.groupby('Semaine').size().reset_index(name='Volume')
-        fig = px.line(trend, x='Semaine', y='Volume', markers=True, title="Volume d'interventions hebdomadaire")
-        st.plotly_chart(fig, use_container_width=True)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            # Top Actifs sans 'nan'
+            top_a = df_reps['Actif_SN'].value_counts().nlargest(10).reset_index()
+            fig_a = px.bar(top_a, x='count', y='Actif_SN', orientation='h', title="Top 10 Actifs Critiques", color_discrete_sequence=['#E74C3C'])
+            fig_a.update_layout(yaxis={'type': 'category', 'categoryorder': 'total ascending'})
+            st.plotly_chart(fig_a, use_container_width=True)
+            
+        with col_b:
+            st.write("📥 **Télécharger les données d'impact**")
+            # Option pour télécharger les lignes de repeats en Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_reps.to_excel(writer, index=False, sheet_name='Repeats_Impact')
+            st.download_button(
+                label="Générer Rapport Excel (Repeats)",
+                data=output.getvalue(),
+                file_name="arkeos_impact_repeats.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 else:
-    st.error("Données introuvables. Vérifiez le fichier 'data_dynamics_brute.csv.csv'.")
+    st.error("Données introuvables.")
