@@ -1,0 +1,17 @@
+credentials:
+  usernames:
+    admin:
+      email: admin@arkeos.com
+      name: Administrateur Arkeos
+      password: XXX # On va générer un hash ici à l'étape 3
+    technicien1:
+      email: tech@arkeos.com
+      name: Tech Support
+      password: XXX
+cookie:
+  expiry_days: 30
+  key: some_signature_key # Change ceci par une phrase aléatoire
+  name: arkeos_auth_cookie
+preauthorized:
+  emails:
+    - m.dislog@client.com
