@@ -1,156 +1,136 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import os
-import io
 import plotly.express as px
+import os
 from PIL import Image
 
-# 1. CONFIGURATION DE LA PAGE
-st.set_page_config(page_title="Arkeos Support Performance", layout="wide")
+# 1. CONFIGURATION ET STYLE CSS CUSTOM
+st.set_page_config(page_title="Arkeos Support Pro", layout="wide")
 
-# Style Professionnel "Executive"
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #1E3A8A; font-weight: bold; }
-    div[data-testid="metric-container"] {
+    /* Style pour les cartes KPI cliquables */
+    .kpi-card {
         background-color: white;
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 12px;
+        border: 1px solid #e0e6ed;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border: 1px solid #eef2f6;
+        text-align: center;
+        transition: transform 0.2s, border-color 0.2s;
+        cursor: pointer;
     }
+    .kpi-card:hover {
+        transform: translateY(-5px);
+        border-color: #1E3A8A;
+        background-color: #f8fbff;
+    }
+    .kpi-title { font-size: 16px; color: #64748b; font-weight: 500; }
+    .kpi-value { font-size: 32px; color: #1E3A8A; font-weight: 700; margin: 10px 0; }
+    .kpi-icon { font-size: 24px; margin-bottom: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CHARGEMENT ET CALCULS
+# 2. CHARGEMENT DES DONNÉES NETTOYÉES
 @st.cache_data
 def load_data():
-    file_name = "data_dynamics_brute.csv.csv" 
-    if not os.path.exists(file_name):
-        return None
+    file_path = "data_dynamics_brute.csv.csv"
+    if not os.path.exists(file_path): return None
+    df = pd.read_csv(file_path)
     
-    df = pd.read_csv(file_name)
-
-    # Mapping des colonnes réelles
-    mapping = {
-        "Numéro d'ordre de travail": "ID",
-        "Propriétaire": "Technicien",
-        "Type d'incident principal": "Panne",
-        "Compte de service": "Compte",
+    # Mapping et Nettoyage
+    df = df.rename(columns={
         "Actif client principal de l'incident": "Actif_SN",
-        "Date de création": "Date_Debut"
-    }
-    df = df.rename(columns=mapping)
+        "Propriétaire": "Technicien",
+        "Date de création": "Date"
+    })
     
-    # NETTOYAGE DES ACTIFS (Forcer en texte et supprimer les vides)
+    # Suppression des 'nan' et formatage texte
     df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace(r'\.0$', '', regex=True)
     df = df[~df['Actif_SN'].isin(['nan', 'None', 'nan.0', ''])]
     
-    df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
-    df = df.dropna(subset=['Date_Debut'])
-
-    # CALCUL REPEAT (7 JOURS OUVRES)
-    df = df.sort_values(['Actif_SN', 'Date_Debut'])
-    df['Date_Precedente'] = df.groupby('Actif_SN')['Date_Debut'].shift(1)
-    
-    def calc_working_days(row):
-        if pd.isnull(row['Date_Precedente']): return np.nan
-        try:
-            return np.busday_count(row['Date_Precedente'].date(), row['Date_Debut'].date())
-        except: return np.nan
-
-    df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
-    df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
-    
-    # Dimensions Temporelles
-    df['Année'] = df['Date_Debut'].dt.year.astype(str)
-    df['Mois'] = df['Date_Debut'].dt.strftime('%B')
-    df['Semaine'] = df['Date_Debut'].dt.strftime('%Y-W%V')
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    # Simulation de la logique RDR (Repeat dans les 7 jours)
+    df = df.sort_values(['Actif_SN', 'Date'])
+    df['Diff'] = df.groupby('Actif_SN')['Date'].diff().dt.days
+    df['Is_Repeat'] = (df['Diff'] <= 7).astype(int)
     
     return df
 
-df_raw = load_data()
+df = load_data()
 
-# 3. INTERFACE LATÉRALE
-if df_raw is not None:
+# 3. BARRE LATÉRALE (SIDEBAR)
+if df is not None:
     with st.sidebar:
-        try:
-            # Logo Arkeos
-            logo = Image.open('download.png')
-            st.image(logo, width=280) 
-        except:
-            st.title("🏛️ ARKEOS")
+        if os.path.exists("download.png"):
+            st.image("download.png", use_container_width=True) # Logo Arkeos
         
         st.markdown("---")
         st.header("🔍 Filtres")
-        
-        years = sorted(df_raw['Année'].unique(), reverse=True)
-        sel_year = st.multiselect("Année", options=years, default=years)
-        
-        all_techs = df_raw['Technicien'].dropna().unique()
-        # Filtre propre pour les noms de techniciens
-        clean_techs = sorted([t for t in all_techs if " " in str(t) and not str(t).startswith("CC-WO")])
-        sel_tech = st.selectbox("Technicien", options=["Tous"] + clean_techs)
+        tech_list = ["Tous"] + sorted(df['Technicien'].unique().tolist())
+        sel_tech = st.selectbox("Technicien", tech_list)
 
-        st.markdown("---")
-        # Export Excel rapide
-        buf = io.BytesIO()
-        df_raw.to_excel(buf, index=False)
-        st.download_button("📥 Export Excel", buf.getvalue(), "reporting_arkeos.xlsx")
+    # Application des filtres
+    df_f = df if sel_tech == "Tous" else df[df['Technicien'] == sel_tech]
 
-    # 4. AFFICHAGE DU DASHBOARD
+    # 4. CALCUL DES KPI
+    total_int = len(df_f)
+    nb_repeats = df_f['Is_Repeat'].sum()
+    rdr_rate = (nb_repeats / total_int * 100) if total_int > 0 else 0
+    fttr_rate = 100 - rdr_rate
+
+    # 5. AFFICHAGE DES KPI PROFESSIONNELS
     st.title("📊 Arkeos Support Technique Dashboard")
     
-    mask = df_raw['Année'].isin(sel_year)
-    if sel_tech != "Tous":
-        mask = mask & (df_raw['Technicien'] == sel_tech)
-    df_f = df_raw[mask]
+    # Initialisation du choix de vue via session_state
+    if 'view' not in st.session_state:
+        st.session_state.view = "Global"
 
-    if not df_f.empty:
-        # KPI Row
-        total_int = len(df_f)
-        repeats = df_f['Is_Repeat'].sum()
-        rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        if st.button(f"📄 Total Interventions\n{total_int:,}", key="btn_total", use_container_width=True):
+            st.session_state.view = "Global"
+    
+    with col2:
+        # Couleur rouge pour le RDR (Alerte)
+        if st.button(f"🔄 RDR % (Repeats)\n{rdr_rate:.1f}%", key="btn_rdr", use_container_width=True):
+            st.session_state.view = "RDR"
+
+    with col3:
+        # Couleur verte pour le FTTR (Performance)
+        if st.button(f"✅ FTTR %\n{fttr_rate:.1f}%", key="btn_fttr", use_container_width=True):
+            st.session_state.view = "FTTR"
+
+    with col4:
+        st.button(f"⚠️ Nb Repeats\n{nb_repeats}", key="btn_nb", use_container_width=True)
+
+    st.markdown("---")
+
+    # 6. VUES DYNAMIQUES SELON LE CLIC
+    if st.session_state.view == "RDR":
+        st.subheader("🚨 Analyse approfondie des Repeats (RDR)")
+        # On montre les actifs qui causent le plus de retours
+        df_reps = df_f[df_f['Is_Repeat'] == 1]
+        top_a = df_reps['Actif_SN'].value_counts().nlargest(10).reset_index()
+        fig = px.bar(top_a, x='count', y='Actif_SN', orientation='h', title="Top 10 Actifs à Problèmes", color_discrete_sequence=['#E74C3C'])
+        st.plotly_chart(fig, use_container_width=True)
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("RDR % (7j)", f"{rdr_rate:.1f}%")
-        c3.metric("FTTR %", f"{100-rdr_rate:.1f}%")
-        c4.metric("Nb Repeats", f"{repeats:,}")
-
-        st.markdown("---")
-
-        # TENDANCE HEBDO AVEC %
-        st.subheader("📈 Tendance RDR % par Semaine")
-        trend = df_f.groupby('Semaine')['Is_Repeat'].mean().reset_index()
-        trend['RDR %'] = (trend['Is_Repeat'] * 100).round(1)
-        fig_trend = px.line(trend, x='Semaine', y='RDR %', text='RDR %', markers=True, color_discrete_sequence=['#1E3A8A'])
-        fig_trend.update_traces(textposition="top center")
-        st.plotly_chart(fig_trend, use_container_width=True)
-
-        # ANALYSE PAR ACTIF (NETTOYÉ)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.subheader("📠 Top 10 Actifs (Impact Repeats)")
-            df_reps = df_f[df_f['Is_Repeat'] == 1]
-            if not df_reps.empty:
-                top_a = df_reps.groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-                fig_a = px.bar(top_a, x='Nb', y='Actif_SN', orientation='h', color_discrete_sequence=['#E74C3C'], text='Nb')
-                fig_a.update_layout(yaxis={'type': 'category', 'categoryorder': 'total ascending'})
-                st.plotly_chart(fig_a, use_container_width=True)
-            else:
-                st.info("Aucun repeat sur cette sélection.")
+    elif st.session_state.view == "FTTR":
+        st.subheader("🏆 Excellence : Succès du premier coup (FTTR)")
+        # On montre les techniciens avec le meilleur taux
+        tech_perf = df_f.groupby('Technicien')['Is_Repeat'].mean().reset_index()
+        tech_perf['FTTR'] = (1 - tech_perf['Is_Repeat']) * 100
+        fig = px.bar(tech_perf.nlargest(10, 'FTTR'), x='FTTR', y='Technicien', orientation='h', title="Top 10 Techniciens Performants", color_discrete_sequence=['#2ECC71'])
+        st.plotly_chart(fig, use_container_width=True)
         
-        with col_b:
-            st.subheader("🏢 Top 10 Comptes (Sites impactés)")
-            if not df_reps.empty:
-                top_c = df_reps.groupby('Compte').size().nlargest(10).reset_index(name='Nb')
-                fig_c = px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#3498DB'], text='Nb')
-                fig_c.update_layout(yaxis={'categoryorder': 'total ascending'})
-                st.plotly_chart(fig_c, use_container_width=True)
     else:
-        st.warning("Aucune donnée pour les filtres sélectionnés.")
+        # Vue globale par défaut
+        st.subheader("📈 Tendance Générale")
+        df_f['Semaine'] = df_f['Date'].dt.strftime('%Y-W%V')
+        trend = df_f.groupby('Semaine').size().reset_index(name='Volume')
+        fig = px.line(trend, x='Semaine', y='Volume', markers=True, title="Volume d'interventions hebdomadaire")
+        st.plotly_chart(fig, use_container_width=True)
+
 else:
-    st.error("Le fichier 'data_dynamics_brute.csv.csv' est introuvable.")
+    st.error("Données introuvables. Vérifiez le fichier 'data_dynamics_brute.csv.csv'.")
