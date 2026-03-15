@@ -134,5 +134,35 @@ if df is not None:
         fig_c.update_traces(textposition='outside')
         st.plotly_chart(fig_c, use_container_width=True)
 
+# 1. Fonction de vérification (Copie ce bloc tel quel)
+def check_password():
+    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
+    def password_entered():
+        # Identifiants en dur pour une sécurité maximale contre les bugs de fichiers
+        if st.session_state["username"] == "admin" and st.session_state["password"] == "Arkeos2026":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Sécurité : on efface le mot de passe de la mémoire
+            del st.session_state["username"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Affichage du formulaire de connexion
+        st.title("🔐 Accès Restreint - Arkeos")
+        st.text_input("Identifiant", key="username")
+        st.text_input("Mot de passe", type="password", key="password")
+        st.button("Se connecter", on_click=password_entered)
+        return False
+    elif not st.session_state["password_correct"]:
+        # Message en cas d'erreur
+        st.title("🔐 Accès Restreint - Arkeos")
+        st.text_input("Identifiant", key="username")
+        st.text_input("Mot de passe", type="password", key="password")
+        st.button("Se connecter", on_click=password_entered)
+        st.error("😕 Identifiant ou mot de passe incorrect.")
+        return False
+    else:
+        return True
+
 else:
     st.error("Données non trouvées.")
