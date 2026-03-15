@@ -14,15 +14,17 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     
+    # Lecture du fichier
     df = pd.read_csv(file_name)
     
-    # Détection intelligente des colonnes
+    # Détection intelligente des colonnes pour éviter les KeyError
     def find_col(keywords):
         for col in df.columns:
             if any(k.lower() in col.lower() for k in keywords):
                 return col
         return None
 
+    # Mapping dynamique selon les en-têtes détectés
     mapping = {
         find_col(["ordre", "trav"]): "ID",
         find_col(["propriétaire", "owner"]): "Technicien",
@@ -50,30 +52,42 @@ def load_data():
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(20).astype(int)
     
-    # Préparation pour le Trend Chart (Mois/Année)
+    # Préparation des dimensions temporelles
     df['Periode'] = df['Date_Debut'].dt.to_period('M').astype(str)
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
-    df['Mois'] = df['Date_Debut'].dt.month_name()
+    # Liste ordonnée des mois pour le filtre
+    df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B') 
+    df['Mois_Num'] = df['Date_Debut'].dt.month
     
     return df
 
 df_raw = load_data()
 
 if df_raw is not None and not df_raw.empty:
-    # --- FILTRES ---
+    # --- BARRE LATÉRALE : FILTRES ---
     st.sidebar.header("🔍 Filtres")
-    selected_year = st.sidebar.multiselect("Année", options=sorted(df_raw['Année'].unique()), default=sorted(df_raw['Année'].unique()))
     
+    # Filtre Année
+    years = sorted(df_raw['Année'].unique(), reverse=True)
+    selected_year = st.sidebar.multiselect("Année", options=years, default=years)
+    
+    # --- NOUVEAU : Filtre Mois ---
+    # On trie les mois chronologiquement et non par ordre alphabétique
+    mois_disponibles = df_raw[df_raw['Année'].isin(selected_year)].sort_values('Mois_Num')['Mois_Nom'].unique()
+    selected_month = st.sidebar.multiselect("Mois", options=list(mois_disponibles), default=list(mois_disponibles))
+    
+    # Filtre Technicien
     tech_list = ["Tous"] + sorted(df_raw['Technicien'].dropna().unique().tolist())
     selected_tech = st.sidebar.selectbox("Technicien", options=tech_list)
 
-    mask = df_raw['Année'].isin(selected_year)
+    # Application des filtres
+    mask = (df_raw['Année'].isin(selected_year)) & (df_raw['Mois_Nom'].isin(selected_month))
     if selected_tech != "Tous":
         mask = mask & (df_raw['Technicien'] == selected_tech)
     
     df_f = df_raw[mask]
 
-    # --- HEADER ---
+    # --- HEADER KPI ---
     st.title("📊 Arkeos Support Dashboard")
     
     total = len(df_f)
@@ -83,29 +97,22 @@ if df_raw is not None and not df_raw.empty:
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Interventions", f"{total:,}")
-    c2.metric("Repeat Dispatch Rate", f"{rdr_rate:.1f}%")
+    c2.metric("Repeat Rate (RDR)", f"{rdr_rate:.1f}%")
     c3.metric("FTTR %", f"{fttr_rate:.1f}%")
     c4.metric("Total Repeats", f"{repeats:,}")
 
     st.markdown("---")
 
-    # --- SECTION TREND CHART (NOUVEAU) ---
-    st.subheader("📈 Évolution du RDR % par Mois")
-    # Groupement par période pour le calcul du taux mensuel
+    # --- TREND CHART ---
+    st.subheader("📈 Évolution du Taux de Repeat (RDR %)")
     trend_data = df_f.groupby('Periode')['Is_Repeat'].mean().reset_index()
     trend_data['RDR %'] = trend_data['Is_Repeat'] * 100
     
-    fig_trend = px.line(trend_data, x='Periode', y='RDR %', 
-                        markers=True, 
-                        line_shape='spline',
-                        color_discrete_sequence=['#FF4B4B'],
-                        labels={'Periode': 'Mois', 'RDR %': 'Taux de Repeat (%)'})
-    fig_trend.update_layout(yaxis_range=[0, max(trend_data['RDR %'].max() + 5, 20)])
+    fig_trend = px.line(trend_data, x='Periode', y='RDR %', markers=True, 
+                        line_shape='spline', color_discrete_sequence=['#FF4B4B'])
     st.plotly_chart(fig_trend, use_container_width=True)
 
-    st.markdown("---")
-    
-    # --- GRAPHIQUES DU BAS ---
+    # --- GRAPHIQUES DE DÉTAIL ---
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🛠️ Top 10 Comptes (Repeats)")
@@ -118,10 +125,10 @@ if df_raw is not None and not df_raw.empty:
         tech_rdr['RDR %'] = tech_rdr['Is_Repeat'] * 100
         st.plotly_chart(px.bar(tech_rdr.nlargest(10, 'RDR %'), x='RDR %', y='Technicien', orientation='h', color_discrete_sequence=['#FFA500']), use_container_width=True)
 
-    # Export
+    # Export Excel
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_arkeos.xlsx")
+    st.sidebar.download_button("📥 Export Données Filtrées", buffer.getvalue(), "reporting_arkeos.xlsx")
 
 else:
-    st.error("Données introuvables. Vérifiez le fichier CSV.")
+    st.error("Données introuvables ou fichier mal formaté.")
