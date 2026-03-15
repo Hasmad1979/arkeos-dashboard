@@ -89,7 +89,7 @@ if df is not None:
     k4.markdown(f'<div class="kpi-card"><div class="kpi-label">Nb Repeats</div><div class="value-blue">{nb_reps}</div></div>', unsafe_allow_html=True)
 
     # 5. NOUVEAU : SECTION INSIGHTS DYNAMIQUES
-    st.markdown("### 💡 Intelligence Opérationnelle")
+    st.markdown("### 💡 Good To Know")
     if not df_rep.empty:
         worst_machine = df_rep['Actif_SN'].value_counts().idxmax()
         worst_site = df_rep['Compte'].value_counts().idxmax()
