@@ -5,7 +5,7 @@ import os
 import io
 import plotly.express as px
 
-# 1. CONFIGURATION
+# Configuration de la page
 st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
 
 @st.cache_data
@@ -15,7 +15,7 @@ def load_data():
         return None
     df = pd.read_csv(file_name)
     
-    # Mapping mis à jour selon vos captures
+    # Mapping des colonnes basé sur vos captures Excel
     mapping = {
         "Numéro de l'incident": "ID", 
         "Actifs du client": "SN", 
@@ -27,32 +27,39 @@ def load_data():
     }
     df = df.rename(columns=mapping)
     
-    # Conversion dates
+    # Conversion et nettoyage des dates
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     df['Date_Fin'] = pd.to_datetime(df['Date_Fin'], errors='coerce')
     df = df.dropna(subset=['SN', 'Date_Debut']).sort_values(['SN', 'Date_Debut'])
 
-    # --- CALCUL DURÉE HORS WEEKEND ---
+    # --- CALCUL DURÉE (RUN TIME) HORS WEEKEND ---
     def calc_duration_no_wk(row):
         if pd.isnull(row['Date_Debut']) or pd.isnull(row['Date_Fin']): return 0
-        # Calcul des minutes totales hors weekends
-        days = np.busday_count(row['Date_Debut'].date(), row['Date_Fin'].date())
-        # Estimation simplifiée en minutes (8h par jour ouvré si même jour, sinon cumul)
-        total_mins = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
-        return max(0, total_mins) if days >= 0 else 0
+        try:
+            # Calcul des jours ouvrés uniquement
+            days = np.busday_count(row['Date_Debut'].date(), row['Date_Fin'].date())
+            total_mins = (row['Date_Fin'] - row['Date_Debut']).total_seconds() / 60
+            return max(0, total_mins) if days >= 0 else 0
+        except: return 0
 
     df['Duree_Mins'] = df.apply(calc_duration_no_wk, axis=1)
     
     # --- CALCUL REPEAT (22 jours ouvrés) ---
     df['Date_Prev'] = df.groupby('SN')['Date_Debut'].shift(1)
-    df['Is_Repeat'] = df.apply(lambda r: 1 if not pd.isnull(r['Date_Prev']) and 
-                               np.busday_count(r['Date_Prev'].date(), r['Date_Debut'].date()) <= 22 else 0, axis=1)
+    def is_repeat(row):
+        if pd.isnull(row['Date_Prev']): return 0
+        try:
+            diff = np.busday_count(row['Date_Prev'].date(), row['Date_Debut'].date())
+            return 1 if 0 <= diff <= 22 else 0
+        except: return 0
+    
+    df['Is_Repeat'] = df.apply(is_repeat, axis=1)
     return df
 
 df_raw = load_data()
 
 if df_raw is not None:
-    # Sidebar Filtres
+    # --- FILTRES SIDEBAR ---
     st.sidebar.title("🎮 Filtres")
     years = sorted(df_raw['Date_Debut'].dt.year.unique(), reverse=True)
     sel_years = st.sidebar.multiselect("Années", years, default=years)
@@ -63,6 +70,7 @@ if df_raw is not None:
     comptes = sorted(df_raw['Compte'].astype(str).unique())
     sel_comptes = st.sidebar.multiselect("Comptes de Service", comptes, default=comptes)
 
+    # Application des filtres
     df_f = df_raw[
         (df_raw['Date_Debut'].dt.year.isin(sel_years)) & 
         (df_raw['Technicien'].isin(sel_techs)) &
@@ -72,31 +80,37 @@ if df_raw is not None:
     st.title("📊 Arkeos Technical Support Dashboard")
     
     if not df_f.empty:
-        # --- 1. KPI ---
+        # --- KPI ---
         total_rep = df_f['Is_Repeat'].sum()
-        run_time = df_f['Duree_Mins'].sum() / 60  # Conversion Heures
-        avg_time = df_f['Duree_Mins'].mean()     # En Minutes
+        run_time_h = df_f['Duree_Mins'].sum() / 60
+        avg_time_m = df_f['Duree_Mins'].mean()
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Repeats", f"{total_rep:,}")
         c2.metric("FTTR Rate", f"{(100 - (total_rep/len(df_f)*100)):.1f}%")
-        c3.metric("Run Time Total", f"{run_time:,.0f} h")
-        c4.metric("Avg Workorder", f"{avg_time:.1f} min")
+        c3.metric("Run Time Total", f"{run_time_h:,.0f} h")
+        c4.metric("Avg Workorder", f"{avg_time_m:.1f} min")
 
-        # --- 2. GRAPHIQUES ---
+        # --- GRAPHIQUES ---
+        st.markdown("---")
         col_l, col_r = st.columns(2)
         
         with col_l:
-            st.subheader("🛠️ Top 10 Pannes")
+            st.subheader("🛠️ Top 10 Pannes (Repeats)")
             top_p = df_f[df_f['Is_Repeat']==1].groupby('Panne').size().nlargest(10).reset_index(name='Nb')
             st.plotly_chart(px.bar(top_p, x='Nb', y='Panne', orientation='h', color_discrete_sequence=['#004a99']), use_container_width=True)
 
         with col_r:
-            st.subheader("🏢 Impact par Compte")
+            st.subheader("🏢 Impact par Compte de Service")
             top_c = df_f[df_f['Is_Repeat']==1].groupby('Compte').size().nlargest(10).reset_index(name='Nb')
             st.plotly_chart(px.bar(top_c, x='Nb', y='Compte', orientation='h', color_discrete_sequence=['#ff4b4b']), use_container_width=True)
 
-        # Export
+        # Export Excel
         buffer = io.BytesIO()
         df_f[df_f['Is_Repeat']==1].to_excel(buffer, index=False)
-        st.sidebar.download_button("📥 Excel des Repeats", buffer.getvalue(), "repeats_arkeos.xlsx")
+        st.sidebar.markdown("---")
+        st.sidebar.download_button("📥 Télécharger les Repeats", buffer.getvalue(), "repeats_arkeos.xlsx")
+    else:
+        st.warning("Aucune donnée pour cette sélection.")
+else:
+    st.error("Fichier de données introuvable.")
