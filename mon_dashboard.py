@@ -43,8 +43,8 @@ def load_data():
     }
     df = df.rename(columns=mapping)
     
-    # --- CORRECTION CRUCIALE : On force l'Actif en texte pour éviter l'affichage "34.8M" ---
-    df['Actif_SN'] = df['Actif_SN'].astype(str)
+    # --- ACTION CORRECTIVE : Forcer l'Actif en texte pour éviter l'affichage scientifique ---
+    df['Actif_SN'] = df['Actif_SN'].astype(str).str.replace('.0', '', regex=False)
     
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
     df = df.dropna(subset=['Date_Debut', 'Actif_SN'])
@@ -63,6 +63,7 @@ def load_data():
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(7).astype(int)
     
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
+    df['Mois'] = df['Date_Debut'].dt.strftime('%B')
     df['Semaine'] = df['Date_Debut'].dt.strftime('%Y-W%V')
     
     return df
@@ -73,7 +74,7 @@ df_raw = load_data()
 if df_raw is not None:
     with st.sidebar:
         try:
-            logo = Image.open('download.png')
+            logo = Image.open('download.png') #
             st.image(logo, width=280) 
         except:
             st.title("ARKEOS")
@@ -84,20 +85,31 @@ if df_raw is not None:
         years = sorted(df_raw['Année'].unique(), reverse=True)
         sel_year = st.multiselect("Année", options=years, default=years)
         
+        months = ["January", "February", "March", "April", "May", "June", 
+                  "July", "August", "September", "October", "November", "December"]
+        available_months = [m for m in months if m in df_raw['Mois'].unique()]
+        sel_month = st.multiselect("Mois", options=available_months, default=available_months)
+        
         all_techs = df_raw['Technicien'].dropna().unique()
         clean_techs = sorted([t for t in all_techs if " " in str(t) and not str(t).startswith("CC-WO")])
-        sel_tech = st.selectbox("Technicien", options=["Tous"] + clean_techs)
+        sel_tech = st.selectbox("Propriétaire (Technicien)", options=["Tous"] + clean_techs)
 
-    # 4. AFFICHAGE
+        # Export Excel corrigé
+        st.markdown("---")
+        buf = io.BytesIO()
+        df_raw.to_excel(buf, index=False)
+        st.download_button("📥 Export Excel", buf.getvalue(), "reporting_arkeos.xlsx")
+
+    # 4. AFFICHAGE DES RÉSULTATS
     st.title("📊 Arkeos Support Technique Dashboard")
     
-    mask = df_raw['Année'].isin(sel_year)
+    mask = (df_raw['Année'].isin(sel_year)) & (df_raw['Mois'].isin(sel_month))
     if sel_tech != "Tous":
         mask = mask & (df_raw['Technicien'] == sel_tech)
     df_f = df_raw[mask]
 
     if not df_f.empty:
-        # KPI
+        # KPI Row
         total_int = len(df_f)
         repeats = df_f['Is_Repeat'].sum()
         rdr_rate = (repeats / total_int * 100) if total_int > 0 else 0
@@ -118,23 +130,31 @@ if df_raw is not None:
         fig_trend.update_traces(textposition="top center")
         st.plotly_chart(fig_trend, use_container_width=True)
 
-        # ANALYSE ACTIFS (CORRIGÉ)
+        # ANALYSE ACTIFS (CORRIGÉ POUR AFFICHAGE TEXTE)
         col_a, col_b = st.columns(2)
         with col_a:
             st.subheader("📠 Top 10 Actifs (Impact Repeats)")
             df_reps = df_f[df_f['Is_Repeat'] == 1]
             if not df_reps.empty:
-                # Groupement par Actif (Texte)
+                # Groupement strict par ID d'actif (Texte)
                 top_a = df_reps.groupby('Actif_SN').size().nlargest(10).reset_index(name='Nb')
-                # Création du graphique à barres horizontales
                 fig_a = px.bar(top_a, x='Nb', y='Actif_SN', orientation='h', 
-                               labels={'Actif_SN': 'Numéro d\'Actif', 'Nb': 'Nombre de Repeats'},
-                               color_discrete_sequence=['#E74C3C'],
-                               text='Nb')
-                fig_a.update_layout(yaxis={'categoryorder':'total ascending'})
+                               color_discrete_sequence=['#E74C3C'], text='Nb')
+                # Force l'axe Y à traiter les valeurs comme des noms (catégories)
+                fig_a.update_layout(yaxis={'type': 'category', 'categoryorder': 'total ascending'})
                 st.plotly_chart(fig_a, use_container_width=True)
             else:
-                st.info("Aucun repeat sur cette période.")
+                st.info("Aucun repeat sur cette sélection.")
         
         with col_b:
-            st.subheader("🏢 Top 10 Comptes (Sites
+            st.subheader("👨‍🔧 RDR % par Technicien")
+            tech_perf = df_f.groupby('Technicien')['Is_Repeat'].mean().reset_index()
+            tech_perf['RDR %'] = (tech_perf['Is_Repeat'] * 100).round(1)
+            top_t = tech_perf.nlargest(10, 'RDR %')
+            fig_t = px.bar(top_t, x='RDR %', y='Technicien', orientation='h', 
+                           color_discrete_sequence=['#FFA500'], text='RDR %')
+            fig_t.update_layout(yaxis={'categoryorder': 'total ascending'})
+            st.plotly_chart(fig_t, use_container_width=True)
+
+else:
+    st.error("Données introuvables. Vérifiez le fichier source.")
