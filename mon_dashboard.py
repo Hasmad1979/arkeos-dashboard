@@ -8,14 +8,13 @@ import plotly.express as px
 # 1. CONFIGURATION DE LA PAGE
 st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
 
-# --- STYLE CSS POUR UN LOOK PRO ---
+# --- STYLE CSS PERSONNALISÉ ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .stApp { background-color: #f8f9fa; }
-    /* Style des cartes KPI */
     div[data-testid="stMetric"] {
         background-color: #ffffff;
         padding: 15px;
@@ -32,12 +31,16 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     df = pd.read_csv(file_name)
+    
+    # Renommage incluant le Type de Panne détecté sur votre Excel
     df = df.rename(columns={
         "Numéro de l'incident": "ID", 
         "Actifs du client": "SN", 
         "Owner": "Technicien", 
-        "Créé le": "Date"
+        "Créé le": "Date",
+        "Type d'incident": "Panne" 
     })
+    
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
     
@@ -48,8 +51,7 @@ def load_data():
         d1, d2 = row['Date_Prev'].date(), row['Date'].date()
         try:
             return int(np.busday_count(d1, d2)) if d1 < d2 else 0
-        except:
-            return 0
+        except: return 0
     df['Ecart_Ouvres'] = df.apply(calc_bus, axis=1)
     df['Is_Repeat'] = ((df['Ecart_Ouvres'] >= 0) & (df['Ecart_Ouvres'] <= 22)).astype(int)
     return df
@@ -77,7 +79,6 @@ if df_raw is not None:
     techs = sorted(df_raw['Technicien'].astype(str).unique().tolist())
     sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
     
-    # Application des filtres
     df_f = df_raw[
         (df_raw['Date'].dt.year.isin(sel_years)) & 
         (df_raw['Mois_Nom'].isin(sel_months_names)) &
@@ -88,7 +89,7 @@ if df_raw is not None:
     st.markdown("---")
 
     if not df_f.empty:
-        # --- 1. LES 4 CARTES KPI (CORRIGÉES) ---
+        # --- 1. KPI ---
         total_int = len(df_f)
         total_rep = df_f['Is_Repeat'].sum()
         repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
@@ -114,19 +115,20 @@ if df_raw is not None:
             fig_evol.update_layout(xaxis_title=None, yaxis_title="Taux (%)", height=300, plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- 3. TOP 10 IMPACTS ---
+        # --- 3. TOP 10 (PANNES & MACHINES) ---
         col_left, col_right = st.columns(2)
         
         with col_left:
             with st.container(border=True):
-                st.subheader("👨‍🔧 Top 10 Techniciens")
-                top_tech = df_f[df_f['Is_Repeat'] == 1].groupby('Technicien').size().reset_index(name='Repeats')
-                top_tech = top_tech.sort_values(by='Repeats', ascending=True).tail(10)
+                st.subheader("🛠️ Top 10 Types de Panne")
+                # Groupement par la colonne "Panne" que nous avons renommée plus haut
+                top_p = df_f[df_f['Is_Repeat'] == 1].groupby('Panne').size().reset_index(name='Repeats')
+                top_p = top_p.sort_values(by='Repeats', ascending=True).tail(10)
                 
-                if not top_tech.empty:
-                    fig_t = px.bar(top_tech, x='Repeats', y='Technicien', orientation='h', text='Repeats', color_discrete_sequence=['#004a99'])
-                    fig_t.update_layout(xaxis_visible=False, yaxis_title=None, height=350, margin=dict(l=0, r=40, t=10, b=10), plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig_t, use_container_width=True, config={'displayModeBar': False})
+                if not top_p.empty:
+                    fig_p = px.bar(top_p, x='Repeats', y='Panne', orientation='h', text='Repeats', color_discrete_sequence=['#004a99'])
+                    fig_p.update_layout(xaxis_visible=False, yaxis_title=None, height=400, margin=dict(l=0, r=40, t=10, b=10), plot_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig_p, use_container_width=True, config={'displayModeBar': False})
 
         with col_right:
             with st.container(border=True):
@@ -136,20 +138,4 @@ if df_raw is not None:
                 
                 if not top_sn.empty:
                     fig_s = px.bar(top_sn, x='Repeats', y='SN', orientation='h', text='Repeats', color_discrete_sequence=['#ff4b4b'])
-                    fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=350, margin=dict(l=0, r=40, t=10, b=10), plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
-
-        # --- 4. LISTE DÉTAILLÉE ---
-        with st.expander("🔍 Liste détaillée des Repeats"):
-            st.dataframe(df_f[df_f['Is_Repeat'] == 1][['ID', 'Technicien', 'SN', 'Date', 'Ecart_Ouvres']], use_container_width=True)
-
-        # --- 5. EXPORT ---
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_f.to_excel(writer, index=False)
-        st.sidebar.download_button("📥 Télécharger Rapport (.xlsx)", buffer.getvalue(), "Arkeos_Performance.xlsx")
-
-    else:
-        st.warning("Aucune donnée pour les filtres sélectionnés.")
-else:
-    st.error("❌ Fichier 'data_dynamics_brute.csv.csv' introuvable.")
+                    fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=400, margin=dict(l=0, r=40,
