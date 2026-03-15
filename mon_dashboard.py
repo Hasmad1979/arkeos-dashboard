@@ -5,7 +5,7 @@ import os
 import io
 import plotly.express as px
 
-# 1. CONFIGURATION DE LA PAGE
+# 1. CONFIGURATION
 st.set_page_config(page_title="Arkeos Support Dashboard", layout="wide")
 
 @st.cache_data
@@ -14,49 +14,48 @@ def load_data():
     if not os.path.exists(file_name):
         return None
     
-    # Lecture du fichier mis à jour
     df = pd.read_csv(file_name)
-    
-    # Système de détection automatique des colonnes
-    def find_col(keywords):
-        for col in df.columns:
-            if any(k.lower() in col.lower() for k in keywords):
-                return col
-        return None
 
+    # Mapping strict avec vos colonnes réelles
     mapping = {
-        find_col(["ordre", "trav"]): "ID",
-        find_col(["actifs", "client", "sn"]): "Actif", # Focus sur la machine/SN
-        find_col(["propriétaire", "owner"]): "Technicien",
-        find_col(["création"]): "Date_Debut",
-        find_col(["fin"]): "Date_Fin",
-        find_col(["compte", "service"]): "Compte"
+        "Numéro d'ordre de travail": "ID",
+        "Propriétaire": "Technicien",
+        "Type d'incident principal": "Panne",
+        "Compte de service": "Compte",
+        "Actif client principal de l'incident": "SN",
+        "Date de création": "Date_Debut",
+        "Date de fin": "Date_Fin"
     }
     
-    df = df.rename(columns={k: v for k, v in mapping.items() if k is not None})
+    df = df.rename(columns=mapping)
     
-    # Nettoyage et conversion des dates
+    # Conversion des dates
     df['Date_Debut'] = pd.to_datetime(df['Date_Debut'], errors='coerce')
-    df = df.dropna(subset=['Date_Debut', 'Actif'])
+    df['Date_Fin'] = pd.to_datetime(df['Date_Fin'], errors='coerce')
+    
+    # --- NETTOYAGE DES TECHNICIENS ---
+    # On ne garde que les vrais noms (on exclut les lignes qui contiennent des codes ID)
+    if 'Technicien' in df.columns:
+        df = df[df['Technicien'].str.contains(' ', na=False)] # Un nom a généralement un espace
+        df = df[~df['Technicien'].str.contains('CC-WO|WO-', na=False, case=False)]
+    
+    df = df.dropna(subset=['Date_Debut', 'SN'])
 
-    # --- CALCUL REPEAT DISPATCH (20 JOURS OUVRES PAR ACTIF CLIENT) ---
-    # Tri par Actif (SN) et Date
-    df = df.sort_values(['Actif', 'Date_Debut'])
-    df['Date_Precedente'] = df.groupby('Actif')['Date_Debut'].shift(1)
+    # --- CALCUL REPEAT (20 JOURS OUVRES PAR ACTIF) ---
+    df = df.sort_values(['SN', 'Date_Debut'])
+    df['Date_Precedente'] = df.groupby('SN')['Date_Debut'].shift(1)
     
     def calc_working_days(row):
         if pd.isnull(row['Date_Precedente']): return np.nan
         try:
-            # np.busday_count calcule l'écart en excluant les samedis et dimanches
+            # np.busday_count exclut les weekends automatiquement
             return np.busday_count(row['Date_Precedente'].date(), row['Date_Debut'].date())
         except: return np.nan
 
     df['Jours_Ouvres_Diff'] = df.apply(calc_working_days, axis=1)
-    
-    # Un Repeat = même actif réparé à nouveau en <= 20 jours ouvrés
     df['Is_Repeat'] = df['Jours_Ouvres_Diff'].le(20).astype(int)
     
-    # Dimensions temporelles pour les graphiques et filtres
+    # Dimensions temporelles pour filtres et trend
     df['Periode'] = df['Date_Debut'].dt.to_period('M').astype(str)
     df['Année'] = df['Date_Debut'].dt.year.astype(str)
     df['Mois_Nom'] = df['Date_Debut'].dt.strftime('%B')
@@ -67,7 +66,7 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None and not df_raw.empty:
-    # --- BARRE LATÉRALE : FILTRES ---
+    # --- SIDEBAR : FILTRES ---
     st.sidebar.header("🔍 Filtres")
     
     years = sorted(df_raw['Année'].unique(), reverse=True)
@@ -76,19 +75,19 @@ if df_raw is not None and not df_raw.empty:
     mois_dispo = df_raw[df_raw['Année'].isin(selected_year)].sort_values('Mois_Num')['Mois_Nom'].unique()
     selected_month = st.sidebar.multiselect("Mois", options=list(mois_dispo), default=list(mois_dispo))
     
-    tech_list = ["Tous"] + sorted(df_raw['Technicien'].dropna().unique().tolist())
-    selected_tech = st.sidebar.selectbox("Technicien", options=tech_list)
+    # Liste des techniciens propre (Uniquement les noms)
+    tech_list = ["Tous"] + sorted(df_raw['Technicien'].unique().tolist())
+    selected_tech = st.sidebar.selectbox("Technicien (Propriétaire)", options=tech_list)
 
-    # Application des filtres
+    # Filtrage
     mask = (df_raw['Année'].isin(selected_year)) & (df_raw['Mois_Nom'].isin(selected_month))
     if selected_tech != "Tous":
         mask = mask & (df_raw['Technicien'] == selected_tech)
     
     df_f = df_raw[mask]
 
-    # --- HEADER KPI ---
-    st.title("📊 Arkeos Support Dashboard")
-    st.markdown("### Analyse de Performance par Actif Client")
+    # --- DASHBOARD ---
+    st.title("📊 Arkeos Performance Dashboard")
     
     total = len(df_f)
     repeats = df_f['Is_Repeat'].sum()
@@ -97,32 +96,29 @@ if df_raw is not None and not df_raw.empty:
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Interventions", f"{total:,}")
-    c2.metric("Repeat Rate (RDR %)", f"{rdr_rate:.1f}%")
+    c2.metric("RDR % (20j ouvrés)", f"{rdr_rate:.1f}%")
     c3.metric("FTTR %", f"{fttr_rate:.1f}%")
-    c4.metric("Volume Repeats", f"{repeats:,}")
+    c4.metric("Nb Repeats", f"{repeats:,}")
 
     st.markdown("---")
 
-    # --- TREND CHART : ÉVOLUTION MENSUELLE ---
-    st.subheader("📈 Tendance Mensuelle du RDR % (Actifs)")
-    trend_data = df_f.groupby('Periode')['Is_Repeat'].mean().reset_index()
-    trend_data['RDR %'] = trend_data['Is_Repeat'] * 100
-    
-    fig_trend = px.line(trend_data, x='Periode', y='RDR %', markers=True, 
-                        color_discrete_sequence=['#FF4B4B'], 
-                        labels={'Periode': 'Mois', 'RDR %': 'Taux de Repeat (%)'})
-    fig_trend.update_layout(yaxis_range=[0, trend_data['RDR %'].max() + 10])
+    # --- TREND CHART ---
+    st.subheader("📈 Évolution Mensuelle du RDR %")
+    trend = df_f.groupby('Periode')['Is_Repeat'].mean().reset_index()
+    trend['RDR %'] = trend['Is_Repeat'] * 100
+    fig_trend = px.line(trend, x='Periode', y='RDR %', markers=True, 
+                        color_discrete_sequence=['#FF4B4B'])
     st.plotly_chart(fig_trend, use_container_width=True)
 
     st.markdown("---")
     
-    # --- GRAPHIQUES DE DÉTAILS ---
+    # --- ANALYSE PAR TECHNICIEN ---
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📠 Top 10 Actifs (Les plus problématiques)")
-        top_a = df_f[df_f['Is_Repeat']==1].groupby('Actif').size().nlargest(10).reset_index(name='Nb_Repeats')
-        st.plotly_chart(px.bar(top_a, x='Nb_Repeats', y='Actif', orientation='h', 
-                               color_discrete_sequence=['#E74C3C']), use_container_width=True)
+        st.subheader("🛠️ Top 10 Pannes (Repeats)")
+        if 'Panne' in df_f.columns:
+            top_p = df_f[df_f['Is_Repeat']==1].groupby('Panne').size().nlargest(10).reset_index(name='Nb')
+            st.plotly_chart(px.bar(top_p, x='Nb', y='Panne', orientation='h'), use_container_width=True)
 
     with col2:
         st.subheader("👨‍🔧 RDR % par Technicien (Top 10)")
@@ -131,10 +127,10 @@ if df_raw is not None and not df_raw.empty:
         st.plotly_chart(px.bar(tech_rdr.nlargest(10, 'RDR %'), x='RDR %', y='Technicien', 
                                orientation='h', color_discrete_sequence=['#FFA500']), use_container_width=True)
 
-    # EXPORT EXCEL
+    # EXPORT
     buffer = io.BytesIO()
     df_f.to_excel(buffer, index=False)
-    st.sidebar.download_button("📥 Télécharger Rapport Excel", buffer.getvalue(), "reporting_rdr_arkeos.xlsx")
+    st.sidebar.download_button("📥 Export Excel", buffer.getvalue(), "reporting_arkeos_final.xlsx")
 
 else:
-    st.error("Données introuvables. Vérifiez que le fichier 'data_dynamics_brute.csv.csv' est bien présent sur GitHub.")
+    st.error("Données introuvables. Vérifiez le fichier sur GitHub.")
