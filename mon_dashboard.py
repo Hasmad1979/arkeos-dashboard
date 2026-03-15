@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+# 1. CONFIGURATION
 st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
 
-# 1. CONNEXION (Simplifiée pour éviter les erreurs)
+# 2. CONNEXION
 if "auth" not in st.session_state:
     st.session_state["auth"] = False
 
@@ -17,36 +18,40 @@ if not st.session_state["auth"]:
             st.session_state["auth"] = True
             st.rerun()
         else:
-            st.error("Erreur d'identifiants")
+            st.error("Identifiant ou mot de passe incorrect")
     st.stop()
 
-# 2. CHARGEMENT ET DIAGNOSTIC
+# 3. CHARGEMENT
 try:
     df = pd.read_csv('data_dynamics_brute.csv.csv', sep=None, engine='python')
-    # Nettoyage automatique des noms de colonnes
     df.columns = [str(c).strip() for c in df.columns]
-    
-    st.sidebar.write("### 🔍 Diagnostic Colonnes")
-    st.sidebar.write(list(df.columns)) # Affiche la liste réelle des colonnes
-    
-    # 3. FILTRES INTELLIGENTS
+
+    # Conversion de la colonne Date pour faire des filtres
+    if "Date de création" in df.columns:
+        df["Date de création"] = pd.to_datetime(df["Date de création"], errors='coerce')
+        df["Année"] = df["Date de création"].dt.year.fillna(0).astype(int)
+
+    # --- SIDEBAR : FILTRES ---
+    st.sidebar.write(f"👤 : **admin**")
+    if st.sidebar.button("Se déconnecter"):
+        st.session_state.clear()
+        st.rerun()
+
     st.sidebar.header("Paramètres")
     
-    # On cherche la colonne qui ressemble à "Année"
-    col_cible = None
-    for c in df.columns:
-        if "ann" in c.lower() or "year" in c.lower():
-            col_cible = c
-            break
-            
-    if col_cible:
-        options = sorted(df[col_cible].dropna().unique().tolist())
-        sel = st.sidebar.multiselect(f"Filtrer {col_cible}", options, default=options)
-        df = df[df[col_cible].isin(sel)]
-    else:
-        st.sidebar.error("❌ Aucune colonne 'Année' trouvée. Vérifie le diagnostic ci-dessus.")
+    # Filtre Année (basé sur la date de création qu'on vient d'extraire)
+    if "Année" in df.columns:
+        annees = sorted([a for a in df["Année"].unique() if a > 0])
+        sel_annees = st.sidebar.multiselect("Filtrer par Année", options=annees, default=annees)
+        df = df[df["Année"].isin(sel_annees)]
 
-    # 4. AFFICHAGE
+    # Filtre Propriétaire (Tes techniciens)
+    if "Propriétaire" in df.columns:
+        pros = sorted(df["Propriétaire"].dropna().unique().tolist())
+        sel_pros = st.sidebar.multiselect("Filtrer par Propriétaire", options=pros, default=pros[:5]) # Top 5 par défaut
+        df = df[df["Propriétaire"].isin(sel_pros)]
+
+    # --- AFFICHAGE ---
     st.title("🏗️ Arkeos Technical Support Dashboard")
     
     c1, c2, c3 = st.columns(3)
@@ -56,14 +61,26 @@ try:
 
     st.markdown("---")
     
-    # GRAPHIQUE AUTOMATIQUE (Prend la première colonne de texte trouvée)
+    # GRAPHIQUES
     st.subheader("📊 Analyse des Interventions")
-    col_txt = df.select_dtypes(include=['object']).columns
-    if len(col_txt) > 0:
-        fig = px.bar(df[col_txt[0]].value_counts().head(10), title=f"Top 10 par {col_txt[0]}")
-        st.plotly_chart(fig, use_container_width=True)
+    
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
+        if "Propriétaire" in df.columns:
+            fig_prop = px.bar(df["Propriétaire"].value_counts().head(10), 
+                             title="Top 10 par Propriétaire",
+                             labels={'value': 'Nombre', 'index': 'Propriétaire'},
+                             color_discrete_sequence=['#007BFF'])
+            st.plotly_chart(fig_prop, use_container_width=True)
+
+    with col_b:
+        if "Type d'incident principal" in df.columns:
+            fig_type = px.pie(df, names="Type d'incident principal", 
+                             title="Types d'Incidents", hole=0.4)
+            st.plotly_chart(fig_type, use_container_width=True)
 
     st.info("💡 Alerte : La machine ZBX2863 nécessite une expertise.")
 
 except Exception as e:
-    st.error(f"Erreur : {e}")
+    st.error(f"Erreur technique : {e}")
