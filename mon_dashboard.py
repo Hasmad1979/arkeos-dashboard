@@ -1,11 +1,16 @@
 import streamlit as st
 
-# Masquer le footer "Built with Streamlit" et le menu (optionnel)
 hide_st_style = """
             <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
+            /* Masquer le menu Streamlit (Hamburger) */
+            [data-testid="stToolbar"] {visibility: hidden !important;}
+            
+            /* Masquer le footer (Built with Streamlit) */
+            footer {visibility: hidden !important;}
+            [data-testid="stFooter"] {display: none !important;}
+            
+            /* Masquer la barre en haut (Header) */
+            header {visibility: hidden !important;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
