@@ -1,4 +1,16 @@
 import streamlit as st
+
+# Masquer le footer "Built with Streamlit" et le menu (optionnel)
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
