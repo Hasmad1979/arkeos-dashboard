@@ -16,9 +16,6 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 import streamlit as st
-import streamlit as st
-
-# --- COPIEZ-COLLEZ CE BLOC EXACTEMENT ICI ---
 st.markdown(
     """
     <style>
