@@ -16,6 +16,26 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 import streamlit as st
+import streamlit as st
+
+# --- COPIEZ-COLLEZ CE BLOC EXACTEMENT ICI ---
+st.markdown(
+    """
+    <style>
+    footer {visibility: hidden !important;}
+    .stApp [data-testid="stFooter"] {display: none !important;}
+    .stApp footer {display: none !important;}
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+# --------------------------------------------
+
+# Le reste de votre code commence ici...
+st.title("Mon Super Dashboard")
+
 import pandas as pd
 import plotly.express as px
 import os
