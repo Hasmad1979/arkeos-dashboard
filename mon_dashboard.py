@@ -29,7 +29,7 @@ st.markdown(
 # --------------------------------------------
 
 # Le reste de votre code commence ici...
-st.title("Mon Super Dashboard")
+st.title("Technical Support Dashboard")
 
 import pandas as pd
 import plotly.express as px
