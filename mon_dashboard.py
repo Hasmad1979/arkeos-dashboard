@@ -50,4 +50,4 @@ def check_password():
     with col_c:
         st.title("🔐 Accès Arkeos")
         user = st.text_input("Identifiant")
-        pw = st.text_input("Mot de
+        pw = st.text_input("Mot de passe", type="password")
