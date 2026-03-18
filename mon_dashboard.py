@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. STYLE ET VISUALISATION (Design original)
+# 1. STYLE ET VISUALISATION
 st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
 
 st.markdown("""
@@ -53,8 +53,4 @@ def load_data():
                 return int(np.busday_count(d1, d2)) if d1 < d2 else 0
             except: return 0
             
-        df['Is_Repeat'] = df.apply(lambda r: 1 if 0 <= (calc_bus(r) or 999) <= 22 else 0, axis=1)
-        return df
-
-    except Exception as e:
-        # C'est ce bloc 'except' qui manquait et causait votre erreur
+        df['Is_Repeat'] = df.apply(lambda
