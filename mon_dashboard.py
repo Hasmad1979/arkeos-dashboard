@@ -19,7 +19,6 @@ def load():
             if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'SN'})
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        # Nettoyage des doublons temporels pour éviter l'erreur 'duplicate keys'
         df = df.dropna(subset=['Date', 'SN']).drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
         df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
         df['P'] = df.groupby('SN')['Date'].shift(1)
@@ -35,7 +34,7 @@ def load():
 d = load()
 if isinstance(d, str): st.error(d)
 else:
-    st.title("📟 Arkeos Technical Dashboard")
+    st.title("📟 Arkeos Dashboard")
     yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['Tech'].unique().tolist())
@@ -43,4 +42,13 @@ else:
     df = d[d['Date'].dt.year.isin(sy)].copy()
     if st_val != "Tous": df = df[df['Tech'] == st_val]
     t, r = len(df), df['R'].sum()
-    pr = (r/t*100) if t >
+    pr = (r/t*100) if t > 0 else 0
+    pf = 100 - pr
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Interv", f"{t}")
+    k2.metric("RDR %", f"{pr:.1f}%")
+    k3.metric("FTTR %", f"{pf:.1f}%")
+    k4.metric("Repeats", f"{r}")
+    tr = df.groupby(df['Date'].dt.to_period('M'))['R'].mean() * 100
+    tr.index = tr.index.to_timestamp()
+    st.plotly_chart(px.area(tr, labels={'value':'RDR %'}), use_container_width=True)
