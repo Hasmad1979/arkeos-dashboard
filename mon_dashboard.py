@@ -4,50 +4,44 @@ import plotly.express as px
 import os
 import io
 
-# --- 1. CONFIGURATION ET DESIGN CORPORATE ---
-# Toujours mettre set_page_config en TOUT PREMIER
+# 1. Config de base
 st.set_page_config(page_title="Arkeos AI Dashboard", layout="wide")
 
-# Masquer les éléments Streamlit par défaut
-hide_st_style = """
-            <style>
-            [data-testid="stToolbar"] {visibility: hidden !important;}
-            footer {visibility: hidden !important;}
-            [data-testid="stFooter"] {display: none !important;}
-            header {visibility: hidden !important;}
-            .main { background-color: #F8FAFC; }
-            .kpi-card {
-                background-color: white; padding: 20px; border-radius: 12px;
-                border: 1px solid #E2E8F0; text-align: center;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            }
-            .insight-card {
-                background-color: #EFF6FF; padding: 15px; border-radius: 10px;
-                border-left: 5px solid #1E3A8A; margin-bottom: 20px;
-            }
-            .value-blue { color: #1E3A8A; font-weight: 800; font-size: 28px; }
-            .value-red { color: #DC2626; font-weight: 800; font-size: 28px; }
-            .value-green { color: #16A34A; font-weight: 800; font-size: 28px; }
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
-
-# --- 2. GESTION DE LA SÉCURITÉ ---
-USERS = {
-    "admin": "Arkeos2026",
-    "technicien": "ArkeosTech2026"
-}
+# 2. Sécurité
+USERS = {"admin": "Arkeos2026", "technicien": "ArkeosTech2026"}
 
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
-
     if st.session_state["authenticated"]:
         return True
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col_l, col_c, col_r = st.columns([1, 1.5, 1])
-    with col_c:
-        st.title("🔐 Accès Arkeos")
-        user = st.text_input("Identifiant")
-        pw = st.text_input("Mot de passe", type="password")
+    st.title("🔐 Accès Arkeos")
+    user = st.text_input("Identifiant")
+    pw = st.text_input("Mot de passe", type="password")
+    if st.button("Se connecter"):
+        if user in USERS and pw == USERS[user]:
+            st.session_state["authenticated"] = True
+            st.session_state["user_connected"] = user
+            st.rerun()
+        else:
+            st.error("❌ Identifiant ou mot de passe incorrect")
+    return False
+
+# 3. Application
+if check_password():
+    st.sidebar.write(f"👤 Connecté : {st.session_state['user_connected']}")
+    if st.sidebar.button("Déconnexion"):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
+    st.title("📠 Arkeos Dashboard")
+    
+    # Chargement des données
+    file_path = "data_dynamics_brute.csv"
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path, sep=None, engine='python')
+        st.success(f"Données chargées : {len(df)} lignes.")
+        st.write(df.head()) # Affiche les 5 premières lignes pour vérifier
+    else:
+        st.error(f"Fichier {file_path} introuvable sur GitHub.")
