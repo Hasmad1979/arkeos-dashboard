@@ -5,8 +5,7 @@ import os
 import plotly.express as px
 from io import BytesIO
 
-# Configuration
-st.set_page_config(layout="wide", page_title="Arkeos Dashboard")
+st.set_page_config(layout="wide")
 
 @st.cache_data
 def load():
@@ -21,41 +20,41 @@ def load():
             if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'S'})
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
         df['D'] = pd.to_datetime(df['D'], errors='coerce')
-        # Suppression stricte des doublons pour éviter l'erreur "duplicate keys"
         df = df.dropna(subset=['D', 'S']).drop_duplicates(subset=['D', 'S']).sort_values('D')
         df['T'] = df['T'].fillna('Inconnu').astype(str)
-        # Calcul RDR
         df['P'] = df.groupby('S')['D'].shift(1)
         def r_c(r):
             try:
                 if pd.isnull(r['P']): return 0
-                diff = int(np.busday_count(r['P'].date(), r['D'].date()))
-                return 1 if 0 <= diff <= 22 else 0
+                d = int(np.busday_count(r['P'].date(), r['D'].date()))
+                return 1 if 0 <= d <= 22 else 0
             except: return 0
         df['R'] = df.apply(r_c, axis=1)
         return df
     except Exception as e: return f"Erreur: {e}"
 
 d = load()
-if isinstance(d, str):
-    st.error(d)
+if isinstance(d, str): st.error(d)
 else:
-    st.title("📟 Arkeos Technical Dashboard")
-    # Filtres
+    st.title("📟 Arkeos Dashboard")
     yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['T'].unique().tolist())
-    sv = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
-    
-    df_f = d[d['D'].dt.year.isin(sy)].copy()
-    if sv != "Tous": df_f = df_f[df_f['T'] == sv]
-    
-    # KPIs
-    t, r = len(df_f), df_f['R'].sum()
-    pr = (r/t*100) if t > 0 else 0
-    pf = 100 - pr
-    
+    sv = st.sidebar.selectbox("Tech", ["Tous"] + tc)
+    df = d[d['D'].dt.year.isin(sy)].copy()
+    if sv != "Tous": df = df[df['T'] == sv]
+    t, r = len(df), df['R'].sum()
+    pr, pf = (r/t*100) if t>0 else 0, 100-(r/t*100 if t>0 else 0)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interv.", f"{t:,}")
+    c1.metric("Interv", f"{t}")
     c2.metric("RDR %", f"{pr:.1f}%")
-    c3.metric("FTTR %", f
+    c3.metric("FTTR %", f"{pf:.1f}%")
+    c4.metric("Repeats", f"{int(r)}")
+    df_m = df.copy()
+    df_m['M'] = df_m['D'].dt.to_period('M').dt.to_timestamp()
+    ch = df_m.groupby('M')['R'].mean().reset_index()
+    st.plotly_chart(px.area(ch, x='M', y='R', labels={'R':'RDR%'}), use_container_width=True)
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
+        df.to_excel(wr, index=False)
+    st.download_button("📥 Excel", out.getvalue(), "Rapport.xlsx")
