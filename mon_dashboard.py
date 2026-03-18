@@ -3,52 +3,49 @@ import pandas as pd
 import numpy as np
 import os
 import plotly.express as px
-
 st.set_page_config(layout="wide")
-
 @st.cache_data
 def load():
-    f = "data_dynamics_brute.csv.csv.csv"
-    if not os.path.exists(f): return "Fichier introuvable"
-    try:
-        df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
-        df.columns = [str(c).strip() for c in df.columns]
-        for c in df.columns:
-            l = c.lower()
-            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'Date'})
-            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'SN'})
-            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['Date', 'SN']).drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
-        df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
-        df['P'] = df.groupby('SN')['Date'].shift(1)
-        def r_c(r):
-            try:
-                d = int(np.busday_count(r['P'].date(), r['Date'].date()))
-                return 1 if 0 <= d <= 22 else 0
-            except: return 0
-        df['R'] = df.apply(r_c, axis=1)
-        return df
-    except Exception as e: return f"Erreur: {e}"
-
-d = load()
-if isinstance(d, str): st.error(d)
+ f="data_dynamics_brute.csv.csv.csv"
+ if not os.path.exists(f):return "Fichier introuvable"
+ try:
+  df=pd.read_csv(f,sep=None,engine='python',encoding_errors='ignore')
+  df.columns=[str(c).strip() for c in df.columns]
+  for c in df.columns:
+   l=c.lower()
+   if any(x in l for x in ['date','créé']):df=df.rename(columns={c:'Date'})
+   if any(x in l for x in ['actif','asset','sn']):df=df.rename(columns={c:'SN'})
+   if any(x in l for x in ['owner','propriétaire','tech']):df=df.rename(columns={c:'Tech'})
+  df['Date']=pd.to_datetime(df['Date'],errors='coerce')
+  df=df.dropna(subset=['Date','SN']).drop_duplicates(subset=['Date','SN']).sort_values('Date')
+  df['Tech']=df['Tech'].fillna('Inconnu').astype(str)
+  df['P']=df.groupby('SN')['Date'].shift(1)
+  def r_c(r):
+   try:
+    d=int(np.busday_count(r['P'].date(),r['Date'].date()))
+    return 1 if 0<=d<=22 else 0
+   except:return 0
+  df['R']=df.apply(r_c,axis=1)
+  return df
+ except Exception as e:return f"Erreur:{e}"
+d=load()
+if isinstance(d,str):st.error(d)
 else:
-    st.title("📟 Arkeos Dashboard")
-    # Filtres
-    yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
-    sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
-    tc = sorted(d['Tech'].unique().tolist())
-    sv = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
-    df = d[d['Date'].dt.year.isin(sy)].copy()
-    if sv != "Tous": df = df[df['Tech'] == sv]
-    # Calculs simples pour éviter les coupures
-    t = len(df)
-    r = df['R'].sum()
-    p_rdr = (r/t*100) if t > 0 else 0
-    p_fttr = 100 - p_rdr
-    # Affichage
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interv", f"{t}")
-    c2.metric("RDR %", f"{p_rdr:.1f}%")
-    c3.metric("
+ st.title("📟 Arkeos Dashboard")
+ yr=sorted(d['Date'].dt.year.unique().tolist(),reverse=True)
+ sy=st.sidebar.multiselect("Année",yr,default=yr[:1])
+ tc=sorted(d['Tech'].unique().tolist())
+ sv=st.sidebar.selectbox("Technicien",["Tous"]+tc)
+ df=d[d['Date'].dt.year.isin(sy)].copy()
+ if sv!="Tous":df=df[df['Tech']==sv]
+ t,r=len(df),df['R'].sum()
+ pr=(r/t*100) if t>0 else 0
+ pf=100-pr
+ k1,k2,k3,k4=st.columns(4)
+ k1.metric("Interv",f"{t}")
+ k2.metric("RDR %",f"{pr:.1f}%")
+ k3.metric("FTTR %",f"{pf:.1f}%")
+ k4.metric("Repeats",f"{r}")
+ tr=df.groupby(df['Date'].dt.to_period('M'))['R'].mean()*100
+ tr.index=tr.index.to_timestamp()
+ st.plotly_chart(px.area(tr,labels={'value':'%'}),use_container_width=True)
