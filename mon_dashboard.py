@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. CONFIGURATION VISUELLE
+# 1. CONFIGURATION VISUELLE (Design Premium)
 st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
 
 st.markdown("""
@@ -12,25 +12,28 @@ st.markdown("""
     div[data-testid="stMetric"] {
         background-color: #ffffff; padding: 20px; border-radius: 12px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #edf2f7;
+        text-align: center;
     }
     .main-title { font-size: 30px; font-weight: bold; color: #1a365d; }
+    .stAlert { border-radius: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CHARGEMENT SÉCURISÉ
+# 2. CHARGEMENT DES DONNÉES
 @st.cache_data
 def load_data():
-    # On teste le nom exact vu sur votre GitHub
+    # NOM EXACT VU SUR GITHUB
     file_path = "data_dynamics_brute.csv.csv.csv"
+    
     if not os.path.exists(file_path):
-        return "introuvable"
+        return f"Fichier '{file_path}' introuvable sur GitHub."
 
     try:
-        # Lecture avec détection automatique du séparateur
+        # Lecture flexible pour Dynamics (virgule ou point-virgule)
         df = pd.read_csv(file_path, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping flexible pour éviter les KeyError
+        # Mapping des colonnes Dynamics
         mapping = {
             "Numéro de l'incident": "ID", "Incident Number": "ID",
             "Actifs du client": "SN", "Customer Asset": "SN",
@@ -40,9 +43,11 @@ def load_data():
         }
         df = df.rename(columns=mapping)
         
-        # Vérification des colonnes vitales
-        if not {'SN', 'Date', 'Technicien'}.issubset(df.columns):
-            return "colonnes_manquantes"
-
+        # Nettoyage et conversion
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['SN', 'Date']).sort_values(['SN',
+        df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
+        
+        # Calcul du Repeat (RDR 22j)
+        df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
+        def calc_bus(row):
+            if pd.isnull
