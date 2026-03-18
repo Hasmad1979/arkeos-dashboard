@@ -2,143 +2,83 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import io
 import plotly.express as px
 
 # 1. CONFIGURATION
-st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
-
-# --- STYLE CSS ---
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp { background-color: #f8f9fa; }
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #004a99;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
-    # Nom exact détecté sur votre GitHub (image_963daa.png)
-    file_name = "data_dynamics_brute.csv.csv.csv" 
+    # Liste de tous les noms de fichiers vus sur votre GitHub
+    possibilites = [
+        "data_dynamics_brute.csv.csv.csv",
+        "data_dynamics_brute.csv.csv",
+        "data_dynamics_brute.csv"
+    ]
     
-    if not os.path.exists(file_name):
-        return None
-        
-    # Lecture du fichier
-    df = pd.read_csv(file_name)
-    
-    # Nettoyage des noms de colonnes (supprime les espaces avant/après)
-    df.columns = [str(c).strip() for c in df.columns]
-    
-    # Mapping des colonnes basé sur votre export Dynamics
-    mapping = {
-        "Numéro de l'incident": "ID", 
-        "Actifs du client": "SN", 
-        "Owner": "Technicien", 
-        "Créé le": "Date",
-        "Type d'incident 2": "Panne" 
-    }
-    df = df.rename(columns=mapping)
-    
-    # Conversion date et nettoyage
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
-    
-    # Calcul Repeat (22 jours ouvrés)
-    df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
-    def calc_bus(row):
-        if pd.isnull(row['Date_Prev']): return None
-        try:
-            d1, d2 = row['Date_Prev'].date(), row['Date'].date()
-            # Compte les jours ouvrés entre les deux dates
-            return int(np.busday_count(d1, d2)) if d1 < d2 else 0
-        except: return 0
-        
-    df['Ecart_Ouvres'] = df.apply(calc_bus, axis=1)
-    df['Is_Repeat'] = ((df['Ecart_Ouvres'] >= 0) & (df['Ecart_Ouvres'] <= 22)).astype(int)
-    return df
-
-df_raw = load_data()
-
-if df_raw is not None:
-    noms_mois = {1:'Janvier', 2:'Février', 3:'Mars', 4:'Avril', 5:'Mai', 6:'Juin', 
-                 7:'Juillet', 8:'Août', 9:'Septembre', 10:'Octobre', 11:'Novembre', 12:'Décembre'}
-
-    # --- SIDEBAR FILTRES ---
-    st.sidebar.title("🎮 Filtres")
-    
-    # Années
-    years = sorted(df_raw['Date'].dt.year.unique(), reverse=True)
-    sel_years = st.sidebar.multiselect("Années", years, default=years)
-    
-    # Mois
-    df_raw['Mois_Num'] = df_raw['Date'].dt.month
-    df_raw['Mois_Nom'] = df_raw['Mois_Num'].map(noms_mois)
-    available_months = sorted(df_raw['Mois_Num'].unique())
-    month_options = [noms_mois[m] for m in available_months]
-    sel_months = st.sidebar.multiselect("Mois", month_options, default=month_options)
-    
-    # Techniciens
-    techs = sorted(df_raw['Technicien'].astype(str).unique().tolist())
-    sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
-    
-    # Application des filtres
-    df_f = df_raw[
-        (df_raw['Date'].dt.year.isin(sel_years)) & 
-        (df_raw['Mois_Nom'].isin(sel_months)) &
-        (df_raw['Technicien'].isin(sel_techs))
-    ].copy()
-
-    st.title("📊 Arkeos Technical Support Dashboard")
-    st.markdown("---")
-
-    if not df_f.empty:
-        # --- 1. KPI ---
-        total_int = len(df_f)
-        total_rep = df_f['Is_Repeat'].sum()
-        repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("Total Repeats", f"{total_rep:,}")
-        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%")
-        c4.metric("FTTR Rate", f"{100 - repeat_rate:.1f}%")
-
-        # --- 2. ÉVOLUTION MENSUELLE ---
-        st.write("")
-        with st.container(border=True):
-            st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
-            evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
-            evol = evol.reset_index()
-            evol['Mois_Label'] = evol['Mois_Num'].map(noms_mois)
+    file_to_load = None
+    for p in possibilites:
+        if os.path.exists(p):
+            file_to_load = p
+            break
             
-            fig_evol = px.line(evol, x='Mois_Label', y='Is_Repeat', markers=True)
-            fig_evol.update_layout(xaxis_title=None, yaxis_title="Taux (%)", height=300)
-            st.plotly_chart(fig_evol, use_container_width=True)
+    if not file_to_load:
+        return None
 
-        # --- 3. EXPORT ---
-        buffer = io.BytesIO()
-        df_repeats = df_f[df_f['Is_Repeat'] == 1].copy()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_repeats.to_excel(writer, index=False, sheet_name='Repeats')
+    try:
+        # Lecture flexible pour Dynamics (gère virgule ou point-virgule)
+        df = pd.read_csv(file_to_load, sep=None, engine='python', on_bad_lines='skip')
         
-        st.sidebar.markdown("---")
-        st.sidebar.download_button(
-            label="📥 Télécharger les Repeats (Excel)",
-            data=buffer.getvalue(),
-            file_name="arkeos_repeats_list.xlsx",
-            mime="application/vnd.ms-excel"
-        )
-    else:
-        st.warning("⚠️ Aucune donnée ne correspond à vos filtres.")
+        # Nettoyage des colonnes (supprime les espaces invisibles)
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # Mapping flexible
+        mapping = {
+            "Numéro de l'incident": "ID", "Incident Number": "ID",
+            "Actifs du client": "SN", "Customer Asset": "SN",
+            "Owner": "Technicien", "Propriétaire": "Technicien",
+            "Créé le": "Date", "Created On": "Date"
+        }
+        df = df.rename(columns=mapping)
+        
+        # Conversion Date
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
+        
+        # Calcul Repeat (22 jours ouvrés)
+        df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
+        def calc_bus(row):
+            if pd.isnull(row['Date_Prev']): return None
+            try:
+                d1, d2 = row['Date_Prev'].date(), row['Date'].date()
+                return int(np.busday_count(d1, d2)) if d1 < d2 else 0
+            except: return 0
+        df['Is_Repeat'] = df.apply(lambda r: 1 if 0 <= calc_bus(r) <= 22 else 0, axis=1)
+        return df
+    except Exception as e:
+        st.error(f"Erreur de lecture : {e}")
+        return None
+
+df = load_data()
+
+if df is not None:
+    st.title("📊 Arkeos Technical Support")
+    
+    # Filtres
+    techs = ["Tous"] + sorted(df['Technicien'].unique().tolist())
+    sel_tech = st.sidebar.selectbox("Technicien", techs)
+    
+    df_f = df if sel_tech == "Tous" else df[df['Technicien'] == sel_tech]
+    
+    # KPIs
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Interventions", len(df_f))
+    c2.metric("Repeats", df_f['Is_Repeat'].sum())
+    rate = (df_f['Is_Repeat'].sum() / len(df_f) * 100) if len(df_f) > 0 else 0
+    c3.metric("Taux de Repeat", f"{rate:.1f}%")
+    
+    # Graphique
+    fig = px.histogram(df_f, x=df_f['Date'].dt.month, title="Interventions par mois")
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    st.error(f"❌ Fichier 'data_dynamics_brute.csv.csv.csv' introuvable sur votre GitHub.")
+    st.error("⚠️ Fichier introuvable. Vérifiez que le fichier est bien à la racine de votre GitHub.")
