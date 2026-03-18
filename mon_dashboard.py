@@ -5,83 +5,86 @@ import os
 import plotly.express as px
 from io import BytesIO
 
-st.set_page_config(layout="wide", page_title="Arkeos")
+st.set_page_config(layout="wide", page_title="Arkeos Dash")
 
 @st.cache_data
-def load():
+def load_data():
     f = "data_dynamics_brute.csv.csv.csv"
     if not os.path.exists(f): return "Fichier introuvable"
     try:
-        # Lecture sans aucune contrainte
+        # 1. Chargement sans aucune fioriture
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping simple
+        # 2. Mapping ultra-simplifié
         for c in df.columns:
             l = c.lower()
-            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'D'})
-            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'S'})
-            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
+            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'Date'})
+            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'SN'})
+            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
         
-        # NETTOYAGE RADICAL POUR L'ERREUR 'DUPLICATE KEYS'
-        # 1. On supprime les lignes totalement identiques
-        df = df.drop_duplicates().reset_index(drop=True)
+        # 3. SUPPRESSION RADICALE DES DOUBLONS
+        # On ne garde qu'une seule ligne si SN et Date sont identiques
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.dropna(subset=['Date', 'SN'])
+        df = df.drop_duplicates(subset=['SN', 'Date']).sort_values('Date').reset_index(drop=True)
         
-        # 2. Conversion Date
-        df['D'] = pd.to_datetime(df['D'], errors='coerce')
-        df = df.dropna(subset=['D', 'S'])
+        # 4. Calcul RDR sans utiliser de fonctions complexes
+        df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
+        df['Prev'] = df.groupby('SN')['Date'].shift(1)
         
-        # 3. On force l'unicité par SN et Date (on ne garde qu'une intervention par seconde)
-        df = df.sort_values('D').drop_duplicates(subset=['S', 'D'], keep='first').reset_index(drop=True)
-        
-        df['T'] = df['T'].fillna('Inconnu').astype(str)
-        
-        # Calcul RDR
-        df['P'] = df.groupby('S')['D'].shift(1)
-        df['R'] = (df['D'] - df['P']).dt.days.apply(lambda x: 1 if (0 <= x <= 22) else 0)
+        # Calcul simple de la différence en jours
+        df['Days'] = (df['Date'] - df['Prev']).dt.days
+        df['R'] = df['Days'].apply(lambda x: 1 if (0 <= x <= 22) else 0)
         
         return df
-    except Exception as e: return f"Erreur: {e}"
+    except Exception as e:
+        return f"Erreur système : {e}"
 
-d = load()
+df = load_data()
 
-if isinstance(d, str):
-    st.error(d)
+if isinstance(df, str):
+    st.error(df)
 else:
     st.title("📟 Arkeos Technical Dashboard")
     
-    # Filtres SideBar
-    yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
-    sy = st.sidebar.multiselect("Années", yr, default=yr[:1])
-    tc = sorted(d['T'].unique().tolist())
-    st_v = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
+    # --- FILTRES ---
+    years = sorted(df['Date'].dt.year.unique().tolist(), reverse=True)
+    sel_yr = st.sidebar.multiselect("Années", years, default=years[:1])
+    techs = sorted(df['Tech'].unique().tolist())
+    sel_tk = st.sidebar.selectbox("Technicien", ["Tous"] + techs)
     
-    # Filtrage
-    df_f = d[d['D'].dt.year.isin(sy)].copy()
-    if st_v != "Tous":
-        df_f = df_f[df_f['T'] == st_v]
+    # Filtrage manuel pour éviter les erreurs d'assemblage
+    mask = df['Date'].dt.year.isin(sel_yr)
+    if sel_tk != "Tous":
+        mask = mask & (df['Tech'] == sel_tk)
     
-    # Métriques
-    t, r = len(df_f), df_f['R'].sum()
-    pr = (r/t*100) if t > 0 else 0
-    pf = 100 - pr
+    final_df = df[mask].copy().reset_index(drop=True)
+    
+    # --- KPIs ---
+    total = len(final_df)
+    reps = final_df['R'].sum()
+    rdr = (reps / total * 100) if total > 0 else 0
+    fttr = 100 - rdr
     
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interv.", f"{t:,}")
-    c2.metric("RDR %", f"{pr:.1f}%")
-    c3.metric("FTTR %", f"{pf:.1f}%")
-    c4.metric("Repeats", f"{int(r):,}")
+    c1.metric("Interv.", f"{total}")
+    c2.metric("RDR %", f"{rdr:.1f}%")
+    c3.metric("FTTR %", f"{fttr:.1f}%")
+    c4.metric("Repeats", f"{int(reps)}")
 
-    # Graphique en barres (beaucoup plus robuste que px.line pour les doublons)
-    st.subheader("📈 Tendance Mensuelle")
-    df_f['M'] = df_f['D'].dt.strftime('%Y-%m')
-    res = df_f.groupby('M')['R'].mean().reset_index()
-    res['RDR %'] = res['R'] * 100
+    # --- GRAPHIQUE BARRES (Le plus robuste) ---
+    st.subheader("📈 Tendance de la Qualité")
+    final_df['Mois'] = final_df['Date'].dt.strftime('%Y-%m')
+    # Agrégation manuelle pour éviter le crash de Plotly
+    chart_data = final_df.groupby('Mois')['R'].mean().reset_index()
+    chart_data['RDR %'] = chart_data['R'] * 100
     
-    st.plotly_chart(px.bar(res, x='M', y='RDR %', color_discrete_sequence=['#00CC96']), use_container_width=True)
+    st.plotly_chart(px.bar(chart_data, x='Mois', y='RDR %'), use_container_width=True)
 
-    # Bouton Excel
-    out = BytesIO()
-    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
-        df_f.to_excel(wr, index=False)
-    st.download_button("📥 Télécharger Rapport Excel", out.getvalue(), "Export_Arkeos.xlsx")
+    # --- EXPORT EXCEL ---
+    st.divider()
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        final_df.to_excel(writer, index=False)
+    st.download_button("📥 Télécharger Rapport Excel", output.getvalue(), "Export_Arkeos.xlsx")
