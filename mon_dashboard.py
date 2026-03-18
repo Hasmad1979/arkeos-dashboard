@@ -4,58 +4,129 @@ import numpy as np
 import os
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+# -----------------------------------------------------------
+# CONFIG
+# -----------------------------------------------------------
+st.set_page_config(layout="wide", page_title="Arkeos Dashboard")
 
+# -----------------------------------------------------------
+# LOAD DATA
+# -----------------------------------------------------------
 @st.cache_data
 def load():
-    f = "data_dynamics_brute.csv.csv.csv"
-    if not os.path.exists(f): return "Fichier introuvable"
+    file_name = "data_dynamics_brute.csv.csv.csv"
+
+    if not os.path.exists(file_name):
+        return "Fichier introuvable"
+
     try:
-        df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
+        df = pd.read_csv(
+            file_name,
+            sep=None,
+            engine='python',
+            encoding_errors='ignore'
+        )
+
+        # Nettoyage colonnes
         df.columns = [str(c).strip() for c in df.columns]
+
         for c in df.columns:
-            l = c.lower()
-            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'Date'})
-            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'SN'})
-            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
+            lc = c.lower()
+
+            if any(x in lc for x in ['date', 'créé']):
+                df = df.rename(columns={c: 'Date'})
+
+            if any(x in lc for x in ['actif', 'asset', 'sn']):
+                df = df.rename(columns={c: 'SN'})
+
+            if any(x in lc for x in ['owner', 'propriétaire', 'tech']):
+                df = df.rename(columns={c: 'Tech'})
+
+        # Conversion
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        # Nettoyage des doublons pour éviter l'erreur de graphique
-        df = df.dropna(subset=['Date', 'SN']).drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
         df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
+
+        # Nettoyage doublons
+        df = df.dropna(subset=['Date', 'SN'])
+        df = df.drop_duplicates(subset=['Date', 'SN'])
+        df = df.sort_values('Date')
+
+        # Colonne précédente (P)
         df['P'] = df.groupby('SN')['Date'].shift(1)
-        def r_c(r):
+
+        # Calcul RDR
+        def rdr_calc(row):
             try:
-                d = int(np.busday_count(r['P'].date(), r['Date'].date()))
-                return 1 if 0 <= d <= 22 else 0
-            except: return 0
-        df['R'] = df.apply(r_c, axis=1)
+                days = int(np.busday_count(row['P'].date(), row['Date'].date()))
+                return 1 if 0 <= days <= 22 else 0
+            except:
+                return 0
+
+        df['R'] = df.apply(rdr_calc, axis=1)
+
         return df
-    except Exception as e: return f"Erreur: {e}"
 
+    except Exception as e:
+        return f"Erreur: {e}"
+
+# Chargement
 d = load()
-if isinstance(d, str): st.error(d)
-else:
-    st.title("📟 Arkeos Dashboard")
-    yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
-    sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
-    tc = sorted(d['Tech'].unique().tolist())
-    sv = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
-    
-    df = d[d['Date'].dt.year.isin(sy)].copy()
-    if sv != "Tous": df = df[df['Tech'] == sv]
-    
-    t, r = len(df), df['R'].sum()
-    pr = (r/t*100) if t > 0 else 0
-    pf = 100 - pr
-    
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interv", f"{t}")
-    c2.metric("RDR %", f"{pr:.1f}%")
-    c3.metric("FTTR %", f"{pf:.1f}%")
-    c4.metric("Repeats", f"{r}")
 
-    # GRAPHIQUE CORRIGÉ (Groupement par mois)
-    st.subheader("📈 Tendance Mensuelle")
-    tr = df.groupby(df['Date'].dt.to_period('M'))['R'].mean() * 100
-    tr.index = tr.index.to_timestamp()
-    st.plotly_chart(px.line(tr, labels={'value':'% RDR', 'index':'Date'}), use_container_width=True)
+# -----------------------------------------------------------
+# ERROR HANDLING
+# -----------------------------------------------------------
+if isinstance(d, str):
+    st.error(d)
+    st.stop()
+
+# -----------------------------------------------------------
+# UI & FILTRES
+# -----------------------------------------------------------
+st.title("📟 Arkeos Dashboard")
+
+years = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
+selected_years = st.sidebar.multiselect("Année", years, default=years[:1])
+
+techs = sorted(d['Tech'].unique().tolist())
+selected_tech = st.sidebar.selectbox("Technicien", ["Tous"] + techs)
+
+df = d[d['Date'].dt.year.isin(selected_years)]
+
+if selected_tech != "Tous":
+    df = df[df['Tech'] == selected_tech]
+
+# -----------------------------------------------------------
+# KPIs
+# -----------------------------------------------------------
+total = len(df)
+repeat = df['R'].sum()
+pct_rdr = (repeat / total * 100) if total > 0 else 0
+pct_fttr = 100 - pct_rdr
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Interventions", f"{total}")
+c2.metric("RDR %", f"{pct_rdr:.1f}%")
+c3.metric("FTTR %", f"{pct_fttr:.1f}%")
+c4.metric("Repeats", f"{repeat}")
+
+# -----------------------------------------------------------
+# GRAPHIQUE MENSUEL CORRIGÉ
+# -----------------------------------------------------------
+st.subheader("📈 Tendance Mensuelle (%)")
+
+tr = (
+    df.groupby(df['Date'].dt.to_period('M'))['R']
+      .mean() * 100
+)
+
+# Conversion en timestamp sans doublons
+tr.index = tr.index.to_timestamp(how='start')
+
+fig = px.line(
+    tr,
+    labels={'value': '% RDR', 'index': 'Date'},
+    title="Tendance Mensuelle (%)",
+    markers=True
+)
+
+st.plotly_chart(fig, use_container_width=True)
