@@ -32,19 +32,28 @@ def load():
     except Exception as e: return f"Erreur: {e}"
 
 d = load()
-if isinstance(d, str): st.error(d)
+if isinstance(d, str):
+    st.error(d)
 else:
     st.title("📟 Arkeos Dashboard")
     yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['Tech'].unique().tolist())
-    st = st.sidebar.selectbox("Tech", ["Tous"] + tc)
+    st_val = st.sidebar.selectbox("Tech", ["Tous"] + tc)
+    
     df = d[d['Date'].dt.year.isin(sy)].copy()
-    if st != "Tous": df = df[df['Tech'] == st]
-    t, r = len(df), df['R'].sum()
-    p = (r/t*100) if t > 0 else 0
-    c1, c2, c3, c4 = d.columns if False else d.columns, d.columns, d.columns, d.columns # Ignorer
-    k1, k2, k3, k4 = d.iloc[0,0] if False else st.columns(4)
+    if st_val != "Tous": df = df[df['Tech'] == st_val]
+    
+    t = len(df)
+    r = df['R'].sum()
+    pct_rdr = (r/t*100) if t > 0 else 0
+    pct_fttr = 100 - pct_rdr
+    
+    k1, k2, k3, k4 = st.columns(4)
     k1.metric("Interv", f"{t}")
-    k2.metric("RDR %", f"{p:.1f}%")
-    k3.metric("FTTR %", f"{(100-
+    k2.metric("RDR %", f"{pct_rdr:.1f}%")
+    k3.metric("FTTR %", f"{pct_fttr:.1f}%")
+    k4.metric("Repeats", f"{r}")
+    
+    tr = df.groupby(df['Date'].dt.to_period('M'))['R'].mean() * 100
+    tr.index = tr.index.to_
