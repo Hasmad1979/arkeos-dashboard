@@ -107,7 +107,7 @@ if not os.path.exists(file_path):
             return None
         
         # Lecture flexible pour éviter les erreurs de séparateurs
-        df = pd.read_csv(file_path, sep=None, engine='python')
+df = pd.read_csv(file_path, sep=None, engine='python')
         
         mapping = {
             "Actif client principal de l'incident": "Actif_SN",
