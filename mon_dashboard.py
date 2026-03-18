@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. STYLE ET VISIBILITÉ (Design original de l'image 95BE44)
+# 1. STYLE ET VISUALISATION (Image 95BE44)
 st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
 
 st.markdown("""
@@ -21,18 +21,15 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
-    # Utilisation du nom de fichier exact détecté sur votre GitHub
     file_path = "data_dynamics_brute.csv.csv.csv"
-    
     if not os.path.exists(file_path):
-        return f"Fichier '{file_path}' introuvable."
+        return f"Fichier '{file_path}' introuvable sur GitHub."
 
     try:
-        # Lecture avec détection automatique (virgule ou point-virgule)
+        # Lecture flexible pour Dynamics
         df = pd.read_csv(file_path, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping pour Dynamics
         mapping = {
             "Numéro de l'incident": "ID", "Incident Number": "ID",
             "Actifs du client": "SN", "Customer Asset": "SN",
@@ -41,9 +38,13 @@ def load_data():
             "Compte": "Client", "Account": "Client"
         }
         df = df.rename(columns=mapping)
-        
-        # Nettoyage des dates
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
         
-        # Calcul du Repeat (RDR 22 jours ouvrés)
+        # --- CALCUL DU REPEAT (RDR 22j) ---
+        df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
+        
+        def calc_bus(row):
+            if pd.isnull(row['Date_Prev']): return None
+            try:
+                d1, d2 = row['Date
