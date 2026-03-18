@@ -27,12 +27,19 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
+    # Nom exact détecté sur votre GitHub (image_963daa.png)
     file_name = "data_dynamics_brute.csv.csv.csv" 
+    
     if not os.path.exists(file_name):
         return None
+        
+    # Lecture du fichier
     df = pd.read_csv(file_name)
     
-    # Mapping des colonnes basé sur votre Excel
+    # Nettoyage des noms de colonnes (supprime les espaces avant/après)
+    df.columns = [str(c).strip() for c in df.columns]
+    
+    # Mapping des colonnes basé sur votre export Dynamics
     mapping = {
         "Numéro de l'incident": "ID", 
         "Actifs du client": "SN", 
@@ -42,6 +49,7 @@ def load_data():
     }
     df = df.rename(columns=mapping)
     
+    # Conversion date et nettoyage
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
     
@@ -51,8 +59,10 @@ def load_data():
         if pd.isnull(row['Date_Prev']): return None
         try:
             d1, d2 = row['Date_Prev'].date(), row['Date'].date()
+            # Compte les jours ouvrés entre les deux dates
             return int(np.busday_count(d1, d2)) if d1 < d2 else 0
         except: return 0
+        
     df['Ecart_Ouvres'] = df.apply(calc_bus, axis=1)
     df['Is_Repeat'] = ((df['Ecart_Ouvres'] >= 0) & (df['Ecart_Ouvres'] <= 22)).astype(int)
     return df
@@ -100,7 +110,7 @@ if df_raw is not None:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Interventions", f"{total_int:,}")
         c2.metric("Total Repeats", f"{total_rep:,}")
-        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%", delta=f"{repeat_rate:.1f}%", delta_color="inverse")
+        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%")
         c4.metric("FTTR Rate", f"{100 - repeat_rate:.1f}%")
 
         # --- 2. ÉVOLUTION MENSUELLE ---
@@ -111,38 +121,12 @@ if df_raw is not None:
             evol = evol.reset_index()
             evol['Mois_Label'] = evol['Mois_Num'].map(noms_mois)
             
-            labels = [f"{v:.1f}%" for v in evol['Is_Repeat']]
-            fig_evol = px.line(evol, x='Mois_Label', y='Is_Repeat', markers=True, text=labels)
-            fig_evol.update_traces(line_color='#004a99', line_width=3, textposition="top center")
-            fig_evol.update_layout(xaxis_title=None, yaxis_title="Taux (%)", height=300, plot_bgcolor='rgba(0,0,0,0)')
+            fig_evol = px.line(evol, x='Mois_Label', y='Is_Repeat', markers=True)
+            fig_evol.update_layout(xaxis_title=None, yaxis_title="Taux (%)", height=300)
             st.plotly_chart(fig_evol, use_container_width=True)
 
-        # --- 3. TOP 10 (PANNES & MACHINES) ---
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            with st.container(border=True):
-                st.subheader("🛠️ Top 10 Types de Panne")
-                if "Panne" in df_f.columns:
-                    top_p = df_f[df_f['Is_Repeat'] == 1].groupby('Panne').size().reset_index(name='Repeats')
-                    top_p = top_p.sort_values(by='Repeats', ascending=True).tail(10)
-                    fig_p = px.bar(top_p, x='Repeats', y='Panne', orientation='h', text='Repeats', color_discrete_sequence=['#004a99'])
-                    fig_p.update_layout(xaxis_visible=False, yaxis_title=None, height=400, plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig_p, use_container_width=True)
-
-        with col_right:
-            with st.container(border=True):
-                st.subheader("📁 Top 10 Machines (SN)")
-                top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().reset_index(name='Repeats')
-                top_sn = top_sn.sort_values(by='Repeats', ascending=True).tail(10)
-                fig_s = px.bar(top_sn, x='Repeats', y='SN', orientation='h', text='Repeats', color_discrete_sequence=['#ff4b4b'])
-                fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=400, plot_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_s, use_container_width=True)
-
-        # --- 4. EXPORT EXCEL ---
-        st.write("")
+        # --- 3. EXPORT ---
         buffer = io.BytesIO()
-        # On exporte uniquement les repeats pour que le fichier soit utile
         df_repeats = df_f[df_f['Is_Repeat'] == 1].copy()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_repeats.to_excel(writer, index=False, sheet_name='Repeats')
@@ -154,8 +138,7 @@ if df_raw is not None:
             file_name="arkeos_repeats_list.xlsx",
             mime="application/vnd.ms-excel"
         )
-
     else:
         st.warning("⚠️ Aucune donnée ne correspond à vos filtres.")
 else:
-    st.error("❌ Fichier de données introuvable.")
+    st.error(f"❌ Fichier 'data_dynamics_brute.csv.csv.csv' introuvable sur votre GitHub.")
