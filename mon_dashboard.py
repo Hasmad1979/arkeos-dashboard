@@ -9,14 +9,11 @@ st.set_page_config(layout="wide", page_title="Arkeos Dashboard")
 
 @st.cache_data
 def load():
-    f = "data_dynamics_brute.csv.csv.csv"
+    f = "data_dynamics_brute.csv.csv.csv" # Nom du fichier
     if not os.path.exists(f): return "Fichier introuvable"
     try:
-        # Lecture avec détection auto du séparateur
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # Mapping des colonnes
         for c in df.columns:
             l = c.lower()
             if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'D'})
@@ -24,12 +21,10 @@ def load():
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
         
         df['D'] = pd.to_datetime(df['D'], errors='coerce')
-        
-        # --- LA CORRECTION RADICALE ---
-        # On supprime les lignes vides et on force la suppression des doublons sur (Date + SN)
         df = df.dropna(subset=['D', 'S'])
-        df = df.drop_duplicates(subset=['D', 'S']).sort_values('D')
         
+        # --- RESET INDEX : LA SOLUTION FINALE ---
+        df = df.sort_values('D').reset_index(drop=True) 
         df['T'] = df['T'].fillna('Inconnu').astype(str)
         
         # Calcul RDR
@@ -42,7 +37,7 @@ def load():
             except: return 0
         df['R'] = df.apply(r_c, axis=1)
         return df
-    except Exception as e: return f"Erreur de données: {e}"
+    except Exception as e: return f"Erreur: {e}"
 
 d = load()
 if isinstance(d, str):
@@ -50,7 +45,7 @@ if isinstance(d, str):
 else:
     st.title("📟 Arkeos Technical Dashboard")
     
-    # --- FILTRES ---
+    # Filtres
     yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['T'].unique().tolist())
@@ -59,7 +54,7 @@ else:
     df_f = d[d['D'].dt.year.isin(sy)].copy()
     if sv != "Tous": df_f = df_f[df_f['T'] == sv]
     
-    # --- KPIs ---
+    # KPIs
     t, r = len(df_f), df_f['R'].sum()
     pr = (r/t*100) if t > 0 else 0
     pf = 100 - pr
@@ -68,21 +63,20 @@ else:
     c1.metric("Interv.", f"{t:,}")
     c2.metric("RDR %", f"{pr:.1f}%")
     c3.metric("FTTR %", f"{pf:.1f}%")
-    c4.metric("Nb Repeats", f"{int(r):,}")
+    c4.metric("Repeats", f"{int(r):,}")
 
-    # --- GRAPHIQUE (AGRÉGATION MENSUELLE) ---
-    st.subheader("📈 Tendance Mensuelle")
-    # On groupe par mois pour être CERTAIN de ne plus avoir de duplicate keys
-    df_m = df_f.copy()
-    df_m['Mois'] = df_m['D'].dt.to_period('M').dt.to_timestamp()
-    ch = df_m.groupby('Mois')['R'].mean().reset_index()
-    ch['RDR %'] = ch['R'] * 100
+    # Graphique SÉCURISÉ
+    st.subheader("📈 Tendance")
+    # On utilise reset_index() ici aussi pour éviter l'erreur duplicate keys au moment du plot
+    chart_data = df_f.groupby(df_f['D'].dt.date)['R'].mean().reset_index()
+    chart_data.columns = ['Date', 'RDR']
+    chart_data['RDR'] = chart_data['RDR'] * 100
     
-    st.plotly_chart(px.area(ch, x='Mois', y='RDR %', color_discrete_sequence=['#FF4B4B']), use_container_width=True)
+    fig = px.line(chart_data, x='Date', y='RDR')
+    st.plotly_chart(fig, use_container_width=True)
 
-    # --- EXPORT EXCEL ---
-    st.divider()
+    # Export Excel
     out = BytesIO()
     with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
         df_f.to_excel(wr, index=False)
-    st.download_button("📥 Télécharger l'export Excel", out.getvalue(), "Report_Arkeos.xlsx")
+    st.sidebar.download_button("📥 Télécharger Excel", out.getvalue(), "Export.xlsx")
