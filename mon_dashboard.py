@@ -1,4 +1,4 @@
- import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import os
@@ -6,42 +6,35 @@ import io
 import plotly.express as px
 
 # 1. CONFIGURATION
-st.set_page_config(page_title="Arkeos Technical Support Dashboard", layout="wide")
+st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
 
-# --- STYLE CSS ---
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp { background-color: #f8f9fa; }
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #004a99;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Masquer les menus Streamlit
+st.markdown("<style>[data-testid='stToolbar'] {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>", unsafe_allow_html=True)
 
 @st.cache_data
 def load_data():
-    file_name = "data_dynamics_brute.csv.csv" 
+    file_name = "data_dynamics_brute.csv.csv"
     if not os.path.exists(file_name):
         return None
-    df = pd.read_csv(file_name)
     
-    # Mapping des colonnes basé sur votre Excel
+    # Lecture flexible
+    df = pd.read_csv(file_name, sep=None, engine='python')
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Mapping ultra-flexible pour éviter les erreurs de colonnes
     mapping = {
-        "Numéro de l'incident": "ID", 
-        "Actifs du client": "SN", 
-        "Owner": "Technicien", 
-        "Créé le": "Date",
-        "Type d'incident 2": "Panne" 
+        "Numéro de l'incident": "ID", "Incident Number": "ID",
+        "Actifs du client": "SN", "Customer Asset": "SN",
+        "Owner": "Technicien", "Propriétaire": "Technicien",
+        "Créé le": "Date", "Created On": "Date",
+        "Type d'incident 2": "Panne"
     }
     df = df.rename(columns=mapping)
     
+    # Sécurité si une colonne manque
+    if 'Technicien' not in df.columns: df['Technicien'] = "Non assigné"
+    if 'SN' not in df.columns: return None
+
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
     
@@ -60,102 +53,35 @@ def load_data():
 df_raw = load_data()
 
 if df_raw is not None:
-    noms_mois = {1:'Janvier', 2:'Février', 3:'Mars', 4:'Avril', 5:'Mai', 6:'Juin', 
-                 7:'Juillet', 8:'Août', 9:'Septembre', 10:'Octobre', 11:'Novembre', 12:'Décembre'}
-
-    # --- SIDEBAR FILTRES ---
     st.sidebar.title("🎮 Filtres")
     
-    # Années
+    # Filtre Année
     years = sorted(df_raw['Date'].dt.year.unique(), reverse=True)
     sel_years = st.sidebar.multiselect("Années", years, default=years)
     
-    # Mois
-    df_raw['Mois_Num'] = df_raw['Date'].dt.month
-    df_raw['Mois_Nom'] = df_raw['Mois_Num'].map(noms_mois)
-    available_months = sorted(df_raw['Mois_Num'].unique())
-    month_options = [noms_mois[m] for m in available_months]
-    sel_months = st.sidebar.multiselect("Mois", month_options, default=month_options)
-    
-    # Techniciens
-    techs = sorted(df_raw['Technicien'].astype(str).unique().tolist())
+    # Filtre Technicien
+    techs = sorted(df_raw['Technicien'].unique().tolist())
     sel_techs = st.sidebar.multiselect("Techniciens", techs, default=techs)
     
-    # Application des filtres
-    df_f = df_raw[
-        (df_raw['Date'].dt.year.isin(sel_years)) & 
-        (df_raw['Mois_Nom'].isin(sel_months)) &
-        (df_raw['Technicien'].isin(sel_techs))
-    ].copy()
+    df_f = df_raw[(df_raw['Date'].dt.year.isin(sel_years)) & (df_raw['Technicien'].isin(sel_techs))]
 
-    st.title("📊 Arkeos Technical Support Dashboard")
-    st.markdown("---")
-
+    st.title("📊 Arkeos Technical Support")
+    
     if not df_f.empty:
-        # --- 1. KPI ---
-        total_int = len(df_f)
-        total_rep = df_f['Is_Repeat'].sum()
-        repeat_rate = (total_rep / total_int * 100) if total_int > 0 else 0
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Interventions", f"{total_int:,}")
-        c2.metric("Total Repeats", f"{total_rep:,}")
-        c3.metric("Taux de Repeat", f"{repeat_rate:.1f}%", delta=f"{repeat_rate:.1f}%", delta_color="inverse")
-        c4.metric("FTTR Rate", f"{100 - repeat_rate:.1f}%")
+        # Affichage des KPIs
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Interventions", f"{len(df_f):,}")
+        c2.metric("Total Repeats", f"{df_f['Is_Repeat'].sum():,}")
+        rate = (df_f['Is_Repeat'].sum() / len(df_f) * 100)
+        c3.metric("Taux de Repeat", f"{rate:.1f}%")
 
-        # --- 2. ÉVOLUTION MENSUELLE ---
-        st.write("")
-        with st.container(border=True):
-            st.subheader("📈 Évolution Mensuelle du Taux de Repeat")
-            evol = df_f.groupby('Mois_Num')['Is_Repeat'].mean() * 100
-            evol = evol.reset_index()
-            evol['Mois_Label'] = evol['Mois_Num'].map(noms_mois)
-            
-            labels = [f"{v:.1f}%" for v in evol['Is_Repeat']]
-            fig_evol = px.line(evol, x='Mois_Label', y='Is_Repeat', markers=True, text=labels)
-            fig_evol.update_traces(line_color='#004a99', line_width=3, textposition="top center")
-            fig_evol.update_layout(xaxis_title=None, yaxis_title="Taux (%)", height=300, plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_evol, use_container_width=True)
-
-        # --- 3. TOP 10 (PANNES & MACHINES) ---
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            with st.container(border=True):
-                st.subheader("🛠️ Top 10 Types de Panne")
-                if "Panne" in df_f.columns:
-                    top_p = df_f[df_f['Is_Repeat'] == 1].groupby('Panne').size().reset_index(name='Repeats')
-                    top_p = top_p.sort_values(by='Repeats', ascending=True).tail(10)
-                    fig_p = px.bar(top_p, x='Repeats', y='Panne', orientation='h', text='Repeats', color_discrete_sequence=['#004a99'])
-                    fig_p.update_layout(xaxis_visible=False, yaxis_title=None, height=400, plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig_p, use_container_width=True)
-
-        with col_right:
-            with st.container(border=True):
-                st.subheader("📁 Top 10 Machines (SN)")
-                top_sn = df_f[df_f['Is_Repeat'] == 1].groupby('SN').size().reset_index(name='Repeats')
-                top_sn = top_sn.sort_values(by='Repeats', ascending=True).tail(10)
-                fig_s = px.bar(top_sn, x='Repeats', y='SN', orientation='h', text='Repeats', color_discrete_sequence=['#ff4b4b'])
-                fig_s.update_layout(xaxis_visible=False, yaxis_title=None, height=400, plot_bgcolor='rgba(0,0,0,0)')
-                st.plotly_chart(fig_s, use_container_width=True)
-
-        # --- 4. EXPORT EXCEL ---
-        st.write("")
-        buffer = io.BytesIO()
-        # On exporte uniquement les repeats pour que le fichier soit utile
-        df_repeats = df_f[df_f['Is_Repeat'] == 1].copy()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_repeats.to_excel(writer, index=False, sheet_name='Repeats')
-        
-        st.sidebar.markdown("---")
-        st.sidebar.download_button(
-            label="📥 Télécharger les Repeats (Excel)",
-            data=buffer.getvalue(),
-            file_name="arkeos_repeats_list.xlsx",
-            mime="application/vnd.ms-excel"
-        )
-
+        # Graphique
+        st.subheader("📈 Évolution du Repeat")
+        df_f['Mois'] = df_f['Date'].dt.strftime('%Y-%m')
+        evol = df_f.groupby('Mois')['Is_Repeat'].mean().reset_index()
+        fig = px.line(evol, x='Mois', y='Is_Repeat', title="Tendance mensuelle")
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("⚠️ Aucune donnée ne correspond à vos filtres.")
+        st.warning("Aucune donnée avec ces filtres.")
 else:
-    st.error("❌ Fichier de données introuvable.")
+    st.error("Fichier de données introuvable. Vérifiez le nom sur GitHub.")
