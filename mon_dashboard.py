@@ -20,17 +20,17 @@ def load():
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
         
         df['D'] = pd.to_datetime(df['D'], errors='coerce')
-        # Nettoyage strict : on supprime les lignes vides et les doublons exacts
+        # NETTOYAGE RADICAL : on supprime les doublons temporels exacts
         df = df.dropna(subset=['D', 'S']).drop_duplicates(subset=['D', 'S']).sort_values('D')
         df['T'] = df['T'].fillna('Inconnu').astype(str)
         
-        # Calcul Repeat (R)
+        # Calcul RDR
         df['P'] = df.groupby('S')['D'].shift(1)
         def r_c(r):
             try:
                 if pd.isnull(r['P']): return 0
-                d = int(np.busday_count(r['P'].date(), r['D'].date()))
-                return 1 if 0 <= d <= 22 else 0
+                diff = int(np.busday_count(r['P'].date(), r['D'].date()))
+                return 1 if 0 <= diff <= 22 else 0
             except: return 0
         df['R'] = df.apply(r_c, axis=1)
         return df
@@ -42,17 +42,17 @@ if isinstance(d, str):
 else:
     st.title("📟 Arkeos Technical Dashboard")
     
-    # Filtres
+    # --- FILTRES ---
     yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['T'].unique().tolist())
     sv = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
     
-    df = d[d['D'].dt.year.isin(sy)].copy()
-    if sv != "Tous": df = df[df['T'] == sv]
+    df_f = d[d['D'].dt.year.isin(sy)].copy()
+    if sv != "Tous": df_f = df_f[df_f['T'] == sv]
     
-    # KPIs
-    t, r = len(df), df['R'].sum()
+    # --- KPIs ---
+    t, r = len(df_f), df_f['R'].sum()
     pr = (r/t*100) if t > 0 else 0
     pf = 100 - pr
     
@@ -60,14 +60,9 @@ else:
     c1.metric("Interv.", f"{t:,}")
     c2.metric("RDR %", f"{pr:.1f}%")
     c3.metric("FTTR %", f"{pf:.1f}%")
-    col4_val = int(r)
-    c4.metric("Repeats", f"{col4_val:,}")
+    c4.metric("Repeats", f"{int(r):,}")
 
-    # GRAPHIQUE ANTI-ERREUR (Agrégation par jour)
-    st.subheader("📈 Tendance de la Qualité")
-    # Cette ligne regroupe les données par jour pour éliminer les doublons de clés
-    df_day = df.groupby(df['D'].dt.date)['R'].mean().reset_index()
-    df_day['R'] = df_day['R'] * 100
+    # --- GRAPHIQUE ANTI-DUPLICATE (AGRÉGATION PAR MOIS) ---
+    st.subheader("📈 Tendance Qualité (Mensuelle)")
     
-    fig = px.line(df_day, x='D', y='R', labels={'R':'RDR %', 'D':'Date'})
-    st.plotly_chart(fig, use_container_width=True)
+    # Au lieu de
