@@ -101,7 +101,7 @@ if check_password():
     def load_data():
         file_path = "data_dynamics_brute.csv.csv"
 
-                df = pd.read_csv("data_dynamics_brute.csv")
+df = pd.read_csv("data_dynamics_brute.csv")
 st.write(df.columns.tolist()) # Cette ligne va afficher les noms exacts des colonnes
         if not os.path.exists(file_path): 
             return None
