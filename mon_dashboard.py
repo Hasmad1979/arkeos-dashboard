@@ -9,37 +9,38 @@ st.set_page_config(page_title="Arkeos Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
-    # Liste de tous les noms de fichiers vus sur votre GitHub
-    possibilites = [
-        "data_dynamics_brute.csv.csv.csv",
-        "data_dynamics_brute.csv.csv",
-        "data_dynamics_brute.csv"
-    ]
+    # On définit le nom exact vu sur votre capture GitHub
+    file_name = "data_dynamics_brute.csv.csv.csv"
     
-    file_to_load = None
-    for p in possibilites:
-        if os.path.exists(p):
-            file_to_load = p
-            break
-            
-    if not file_to_load:
+    if not os.path.exists(file_name):
+        st.error(f"Fichier {file_name} non trouvé à la racine du dépôt.")
         return None
 
     try:
-        # Lecture flexible pour Dynamics (gère virgule ou point-virgule)
-        df = pd.read_csv(file_to_load, sep=None, engine='python', on_bad_lines='skip')
+        # Lecture robuste : Dynamics exporte souvent en UTF-16 avec des tabulations
+        # sep=None avec engine='python' détecte automatiquement si c'est , ou ; ou tabulation
+        df = pd.read_csv(file_name, sep=None, engine='python', encoding_errors='ignore')
         
-        # Nettoyage des colonnes (supprime les espaces invisibles)
+        # Nettoyage radical des noms de colonnes
         df.columns = [str(c).strip() for c in df.columns]
 
-        # Mapping flexible
-        mapping = {
-            "Numéro de l'incident": "ID", "Incident Number": "ID",
-            "Actifs du client": "SN", "Customer Asset": "SN",
-            "Owner": "Technicien", "Propriétaire": "Technicien",
-            "Créé le": "Date", "Created On": "Date"
-        }
-        df = df.rename(columns=mapping)
+        # Mapping flexible (on cherche les mots clés si le nom exact échoue)
+        def find_and_rename(keywords, new_name):
+            for col in df.columns:
+                if any(k.lower() in col.lower() for k in keywords):
+                    return col
+            return None
+
+        col_id = find_and_rename(["incident", "numéro"], "ID")
+        col_sn = find_and_rename(["actif", "asset", "série"], "SN")
+        col_tech = find_and_rename(["owner", "propriétaire", "technicien"], "Technicien")
+        col_date = find_and_rename(["créé", "created", "date"], "Date")
+
+        if not all([col_id, col_sn, col_tech, col_date]):
+            st.error(f"Colonnes manquantes. Trouvées : ID={col_id}, SN={col_sn}, Tech={col_tech}, Date={col_date}")
+            return None
+
+        df = df.rename(columns={col_id: "ID", col_sn: "SN", col_tech: "Technicien", col_date: "Date"})
         
         # Conversion Date
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
@@ -53,32 +54,35 @@ def load_data():
                 d1, d2 = row['Date_Prev'].date(), row['Date'].date()
                 return int(np.busday_count(d1, d2)) if d1 < d2 else 0
             except: return 0
-        df['Is_Repeat'] = df.apply(lambda r: 1 if 0 <= calc_bus(r) <= 22 else 0, axis=1)
+            
+        df['Is_Repeat'] = df.apply(lambda r: 1 if 0 <= (calc_bus(r) or 999) <= 22 else 0, axis=1)
         return df
     except Exception as e:
-        st.error(f"Erreur de lecture : {e}")
+        st.error(f"Erreur lors de la lecture : {e}")
         return None
 
-df = load_data()
+df_raw = load_data()
 
-if df is not None:
+if df_raw is not None:
     st.title("📊 Arkeos Technical Support")
     
-    # Filtres
-    techs = ["Tous"] + sorted(df['Technicien'].unique().tolist())
-    sel_tech = st.sidebar.selectbox("Technicien", techs)
+    # Sidebar Filtres
+    st.sidebar.header("Filtres")
+    techs = ["Tous"] + sorted(df_raw['Technicien'].unique().tolist())
+    sel_tech = st.sidebar.selectbox("Sélectionner un Technicien", techs)
     
-    df_f = df if sel_tech == "Tous" else df[df['Technicien'] == sel_tech]
+    df_f = df_raw if sel_tech == "Tous" else df_raw[df_raw['Technicien'] == sel_tech]
     
     # KPIs
     c1, c2, c3 = st.columns(3)
-    c1.metric("Interventions", len(df_f))
-    c2.metric("Repeats", df_f['Is_Repeat'].sum())
-    rate = (df_f['Is_Repeat'].sum() / len(df_f) * 100) if len(df_f) > 0 else 0
-    c3.metric("Taux de Repeat", f"{rate:.1f}%")
+    total = len(df_f)
+    repeats = df_f['Is_Repeat'].sum()
+    c1.metric("Interventions", f"{total:,}")
+    c2.metric("Nombre de Repeats", f"{repeats:,}")
+    c3.metric("Taux de Repeat", f"{(repeats/total*100):.1f}%" if total > 0 else "0%")
     
-    # Graphique
-    fig = px.histogram(df_f, x=df_f['Date'].dt.month, title="Interventions par mois")
+    # Graphique Simple
+    df_f['Mois'] = df_f['Date'].dt.to_period('M').astype(str)
+    evol = df_f.groupby('Mois')['Is_Repeat'].mean().reset_index()
+    fig = px.line(evol, x='Mois', y='Is_Repeat', title="Evolution du Taux de Repeat")
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.error("⚠️ Fichier introuvable. Vérifiez que le fichier est bien à la racine de votre GitHub.")
