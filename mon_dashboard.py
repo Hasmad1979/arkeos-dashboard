@@ -4,70 +4,51 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. Configuration de la page
-st.set_page_config(layout="wide", page_title="Arkeos Dashboard")
+st.set_page_config(layout="wide")
 
 @st.cache_data
-def load_data():
+def load():
     f = "data_dynamics_brute.csv.csv.csv"
-    if not os.path.exists(f):
-        return "Erreur : Fichier de données introuvable."
-    
+    if not os.path.exists(f): return "Fichier introuvable"
     try:
-        # Lecture avec détection automatique du séparateur
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # Identification automatique des colonnes clés
         for c in df.columns:
-            low = c.lower()
-            if any(x in low for x in ['date', 'créé']): df = df.rename(columns={c: 'Date'})
-            if any(x in low for x in ['actif', 'asset', 'sn', 'série']): df = df.rename(columns={c: 'SN'})
-            if any(x in low for x in ['owner', 'propriétaire', 'tech', 'agent']): df = df.rename(columns={c: 'Tech'})
-        
-        # Nettoyage des dates et suppression des doublons techniques
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['Date', 'SN'])
-        
-        # --- SOLUTION À L'ERREUR DUPLICATE KEYS ---
-        # On garde une seule entrée si un SN a deux lignes à la même seconde
-        df = df.drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
-        
-        df['Tech'] = df['Tech'].fillna('Non assigné').astype(str)
-        
-        # Calcul du RDR (Repeat sous 22 jours ouvrés)
-        df['Prev_Date'] = df.groupby('SN')['Date'].shift(1)
-        
-        def calc_rdr(row):
-            if pd.isnull(row['Prev_Date']): return 0
+            l = c.lower()
+            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'D'})
+            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'S'})
+            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
+        df['D'] = pd.to_datetime(df['D'], errors='coerce')
+        df = df.dropna(subset=['D', 'S']).drop_duplicates(subset=['D', 'S']).sort_values('D')
+        df['T'] = df['T'].fillna('Inconnu').astype(str)
+        df['P'] = df.groupby('S')['D'].shift(1)
+        def r_c(r):
             try:
-                # Calcul des jours ouvrés entre deux interventions
-                diff = int(np.busday_count(row['Prev_Date'].date(), row['Date'].date()))
-                return 1 if 0 <= diff <= 22 else 0
+                d = int(np.busday_count(r['P'].date(), r['D'].date()))
+                return 1 if 0 <= d <= 22 else 0
             except: return 0
-            
-        df['Is_Repeat'] = df.apply(calc_rdr, axis=1)
+        df['R'] = df.apply(r_c, axis=1)
         return df
-    except Exception as e:
-        return f"Erreur lors de la lecture : {e}"
+    except Exception as e: return f"Erreur: {e}"
 
-# 2. Chargement
-data = load_data()
-
-if isinstance(data, str):
-    st.error(data)
+d = load()
+if isinstance(d, str): st.error(d)
 else:
-    st.title("📟 Arkeos Technical Dashboard")
-    
-    # --- BARRE LATÉRALE (FILTRES) ---
-    st.sidebar.header("Filtres")
-    years = sorted(data['Date'].dt.year.unique().tolist(), reverse=True)
-    sel_years = st.sidebar.multiselect("Années", years, default=years[:1])
-    
-    techs = sorted(data['Tech'].unique().tolist())
-    sel_tech = st.sidebar.selectbox("Technicien", ["Tous"] + techs)
-    
-    # Filtrage des données
-    df_f = data[data['Date'].dt.year.isin(sel_years)].copy()
-    if sel_tech != "Tous":
-        df_f = df_f[df
+    st.title("📟 Arkeos Dashboard")
+    yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
+    sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
+    tc = sorted(d['T'].unique().tolist())
+    sv = st.sidebar.selectbox("Tech", ["Tous"] + tc)
+    df = d[d['D'].dt.year.isin(sy)].copy()
+    if sv != "Tous": df = df[df['T'] == sv]
+    t, r = len(df), df['R'].sum()
+    pr = (r/t*100) if t > 0 else 0
+    pf = 100 - pr
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Interv", f"{t}")
+    c2.metric("RDR %", f"{pr:.1f}%")
+    c3.metric("FTTR %", f"{pf:.1f}%")
+    c4.metric("Repeats", f"{r}")
+    tr = df.groupby(df['D'].dt.to_period('M'))['R'].mean() * 100
+    tr.index = tr.index.to_timestamp()
+    st.plotly_chart(px.area(tr, labels={'value':'%'}), use_container_width=True)
