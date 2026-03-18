@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Arkeos Support")
 
 @st.cache_data
 def load():
@@ -18,13 +18,17 @@ def load():
             if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'Date'})
             if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'SN'})
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
+        
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        # Nettoyage crucial pour éviter l'erreur 'duplicate keys'
+        # Nettoyage doublons pour éviter l'erreur de graphique
         df = df.dropna(subset=['Date', 'SN']).drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
         df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
+        
+        # Calcul RDR (Repeat < 22 jours)
         df['P'] = df.groupby('SN')['Date'].shift(1)
         def r_c(r):
             try:
+                if pd.isnull(r['P']): return 0
                 d = int(np.busday_count(r['P'].date(), r['Date'].date()))
                 return 1 if 0 <= d <= 22 else 0
             except: return 0
@@ -36,28 +40,31 @@ d = load()
 if isinstance(d, str): st.error(d)
 else:
     st.title("📟 Arkeos Technical Dashboard")
-    # Filtres
+    
+    # --- FILTRES ---
     yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['Tech'].unique().tolist())
-    st_val = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
+    st_v = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
     
     df = d[d['Date'].dt.year.isin(sy)].copy()
-    if st_val != "Tous": df = df[df['Tech'] == st_val]
+    if st_v != "Tous": df = df[df['Tech'] == st_v]
     
-    # Calculs
+    # --- KPIs ---
     t, r = len(df), df['R'].sum()
     pr = (r/t*100) if t > 0 else 0
     pf = 100 - pr
     
-    # Affichage KPIs
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interv.", f"{t}")
-    c2.metric("RDR %", f"{pr:.1f}%")
-    c3.metric("FTTR %", f"{pf:.1f}%")
-    c4.metric("Repeats", f"{r}")
-    
-    # Graphique stable
+    c1.metric("Interv.", f"{t:,}")
+    c2.metric("Taux RDR %", f"{pr:.1f}%")
+    c3.metric("Taux FTTR %", f"{pf:.1f}%")
+    c4.metric("Repeats", f"{r:,}")
+
+    # --- GRAPHIQUE (Correction Duplicate Keys) ---
+    st.subheader("📈 Tendance Mensuelle (RDR %)")
+    # On groupe par mois pour aplatir les doublons de temps
     tr = df.groupby(df['Date'].dt.to_period('M'))['R'].mean() * 100
     tr.index = tr.index.to_timestamp()
-    st.plotly_chart(px.area(tr, labels={'value':'RDR %'}), use_container_width=True)
+    fig = px.area(tr, labels={'value':'RDR %', 'Date':'Mois'})
+    st.plotly_chart(fig, use_container_width=True)
