@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. STYLE ET VISUALISATION
+# 1. STYLE ET VISUALISATION (Design original Arkeos)
 st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
 
 st.markdown("""
@@ -21,14 +21,14 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
-    # Nom exact du fichier détecté sur votre GitHub
+    # Nom du fichier tel qu'il apparaît sur votre GitHub
     file_path = "data_dynamics_brute.csv.csv.csv"
     
     if not os.path.exists(file_path):
         return f"Fichier '{file_path}' introuvable."
 
     try:
-        # Lecture flexible pour les exports Dynamics
+        # Lecture flexible pour Dynamics
         df = pd.read_csv(file_path, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
@@ -50,5 +50,6 @@ def load_data():
             if pd.isnull(row['Date_Prev']): 
                 return None
             try:
+                # C'est ici que l'erreur se produisait
                 d1, d2 = row['Date_Prev'].date(), row['Date'].date()
-                return int(np.busday_count(d1, d2))
+                if
