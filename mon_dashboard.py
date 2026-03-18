@@ -5,19 +5,16 @@ import os
 import plotly.express as px
 from io import BytesIO
 
-st.set_page_config(layout="wide", page_title="Arkeos")
+st.set_page_config(layout="wide", page_title="Arkeos Dash")
 
-# 1. Chargement sans aucune indexation complexe
-@st.cache_data
 def load():
-    f = "data_dynamics_brute.csv.csv.csv" # Nom du fichier
+    f = "data_dynamics_brute.csv.csv.csv" #
     if not os.path.exists(f): return "Fichier introuvable"
     try:
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
-        # Nettoyage immédiat des noms de colonnes
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping simple
+        # 1. Renommage simple
         for c in df.columns:
             l = c.lower()
             if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'D'})
@@ -27,42 +24,38 @@ def load():
         df['D'] = pd.to_datetime(df['D'], errors='coerce')
         df = df.dropna(subset=['D', 'S'])
         
-        # --- LA SOLUTION : ON COUPE TOUT LIEN ENTRE LES LIGNES ---
-        df = df.sort_values('D').reset_index(drop=True)
+        # --- LA SEULE CORRECTION QUI MARCHE ---
+        # On regroupe par SN et Date et on prend la 1ère ligne. 
+        # Cela élimine les "duplicate keys" AVANT le calcul du RDR.
+        df = df.groupby(['S', 'D']).first().reset_index()
+        df = df.sort_values(['S', 'D'])
+        
         df['T'] = df['T'].fillna('Inconnu').astype(str)
         
-        # Calcul RDR ligne par ligne (pas de pivot, pas d'index)
+        # 2. Calcul RDR (jours calendaires pour éviter les erreurs de busday)
         df['P'] = df.groupby('S')['D'].shift(1)
-        def r_c(r):
-            if pd.isnull(r['P']): return 0
-            try:
-                # Différence simple en jours pour éviter np.busday_count si erreur
-                diff = (r['D'] - r['P']).days
-                return 1 if 0 <= diff <= 22 else 0
-            except: return 0
-        df['R'] = df.apply(r_c, axis=1)
+        df['Diff'] = (df['D'] - df['P']).dt.days
+        df['R'] = df['Diff'].apply(lambda x: 1 if (0 <= x <= 22) else 0)
+        
         return df
     except Exception as e: return f"Erreur: {e}"
 
 d = load()
-
 if isinstance(d, str):
     st.error(d)
 else:
     st.title("📟 Arkeos Dashboard")
     
-    # Filtres Sidebar
+    # Filtres
     yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
     sy = st.sidebar.multiselect("Années", yr, default=yr[:1])
     tc = sorted(d['T'].unique().tolist())
     st_v = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
     
-    # Filtrage manuel (copie propre)
     df_f = d[d['D'].dt.year.isin(sy)].copy()
-    if st_v != "Tous":
-        df_f = df_f[df_f['T'] == st_v]
+    if st_v != "Tous": df_f = df_f[df_f['T'] == st_v]
     
-    # Affichage des KPIs
+    # KPIs
     t, r = len(df_f), df_f['R'].sum()
     pr = (r/t*100) if t > 0 else 0
     pf = 100 - pr
@@ -73,17 +66,15 @@ else:
     c3.metric("FTTR %", f"{pf:.1f}%")
     c4.metric("Repeats", f"{int(r):,}")
 
-    # Graphique en barres (plus robuste que les lignes face aux doublons)
-    st.subheader("📈 Tendance Mensuelle")
-    df_f['Mois'] = df_f['D'].dt.strftime('%Y-%m')
-    chart_res = df_f.groupby('Mois')['R'].mean().reset_index()
-    chart_res['RDR %'] = chart_res['R'] * 100
-    
-    fig = px.bar(chart_res, x='Mois', y='RDR %')
-    st.plotly_chart(fig, use_container_width=True)
+    # Graphique Robuste
+    st.subheader("📈 Tendance")
+    # On agrège par jour pour être certain qu'il n'y ait pas de doublons pour Plotly
+    ch_data = df_f.groupby(df_f['D'].dt.date)['R'].mean().reset_index()
+    ch_data.columns = ['Date', 'Taux']
+    st.plotly_chart(px.line(ch_data, x='Date', y='Taux', labels={'Taux':'RDR %'}), use_container_width=True)
 
-    # Export Excel simple
+    # Export Excel
     out = BytesIO()
     with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
         df_f.to_excel(wr, index=False)
-    st.sidebar.download_button("📥 Télécharger Excel", out.getvalue(), "Export_Arkeos.xlsx")
+    st.download_button("📥 Télécharger Excel", out.getvalue(), "Export_Arkeos.xlsx")
