@@ -5,111 +5,77 @@ import os
 import plotly.express as px
 from io import BytesIO
 
-# Configuration de la page
-st.set_page_config(layout="wide", page_title="Arkeos Support Dashboard")
+st.set_page_config(layout="wide", page_title="Arkeos Dashboard")
 
 @st.cache_data
-def load_data():
-    # Nom exact de votre fichier d'après votre capture d'écran
-    file_path = "data_dynamics_brute.csv.csv.csv"
-    
-    if not os.path.exists(file_path):
-        return "Fichier introuvable. Vérifiez le nom du CSV."
-    
+def load():
+    f = "data_dynamics_brute.csv.csv.csv"
+    if not os.path.exists(f): return "Fichier introuvable"
     try:
-        # Lecture robuste
-        df = pd.read_csv(file_path, sep=None, engine='python', encoding_errors='ignore')
+        df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
+        for c in df.columns:
+            l = c.lower()
+            if any(x in l for x in ['date', 'créé']): df=df.rename(columns={c:'D'})
+            if any(x in l for x in ['actif', 'asset', 'sn']): df=df.rename(columns={c:'S'})
+            if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'T'})
         
-        # Mapping automatique des colonnes
-        for col in df.columns:
-            c = col.lower()
-            if any(x in c for x in ['date', 'créé']): df = df.rename(columns={col: 'Date'})
-            if any(x in c for x in ['actif', 'asset', 'sn', 'série']): df = df.rename(columns={col: 'SN'})
-            if any(x in c for x in ['owner', 'propriétaire', 'tech', 'agent']): df = df.rename(columns={col: 'Tech'})
+        df['D'] = pd.to_datetime(df['D'], errors='coerce')
+        # Nettoyage des doublons pour éviter les erreurs de graphique
+        df = df.dropna(subset=['D', 'S']).drop_duplicates(subset=['D', 'S']).sort_values('D')
+        df['T'] = df['T'].fillna('Inconnu').astype(str)
         
-        # Nettoyage des données
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['Date', 'SN'])
-        
-        # --- SOLUTION ANTI-ERREUR DUPLICATE KEYS ---
-        # On supprime les doublons exacts (même machine à la même seconde)
-        df = df.drop_duplicates(subset=['Date', 'SN']).sort_values('Date')
-        
-        df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
-        
-        # Calcul du RDR (Repeat sous 22 jours ouvrés)
-        df['Prev_Date'] = df.groupby('SN')['Date'].shift(1)
-        
-        def check_repeat(row):
-            if pd.isnull(row['Prev_Date']): return 0
+        # Calcul RDR (Repeats < 22 jours)
+        df['P'] = df.groupby('S')['D'].shift(1)
+        def r_c(r):
             try:
-                # Calcul jours ouvrés
-                days = int(np.busday_count(row['Prev_Date'].date(), row['Date'].date()))
-                return 1 if 0 <= days <= 22 else 0
+                if pd.isnull(r['P']): return 0
+                diff = int(np.busday_count(r['P'].date(), r['D'].date()))
+                return 1 if 0 <= diff <= 22 else 0
             except: return 0
-            
-        df['Is_Repeat'] = df.apply(check_repeat, axis=1)
+        df['R'] = df.apply(r_c, axis=1)
         return df
-    except Exception as e:
-        return f"Erreur de lecture : {e}"
+    except Exception as e: return f"Erreur: {e}"
 
-# --- CHARGEMENT ---
-data = load_data()
-
-if isinstance(data, str):
-    st.error(data)
+d = load()
+if isinstance(d, str):
+    st.error(d)
 else:
     st.title("📟 Arkeos Technical Dashboard")
     
-    # --- BARRE LATÉRALE (FILTRES) ---
-    st.sidebar.header("Filtres")
+    # --- FILTRES ---
+    yr = sorted(d['D'].dt.year.unique().tolist(), reverse=True)
+    sy = st.sidebar.multiselect("Année", yr, default=yr[:1])
+    tc = sorted(d['T'].unique().tolist())
+    sv = st.sidebar.selectbox("Technicien", ["Tous"] + tc)
     
-    years = sorted(data['Date'].dt.year.unique().tolist(), reverse=True)
-    sel_year = st.sidebar.multiselect("Année", years, default=years[:1])
+    df_f = d[d['D'].dt.year.isin(sy)].copy()
+    if sv != "Tous": df_f = df_f[df_f['T'] == sv]
     
-    techs = sorted(data['Tech'].unique().tolist())
-    sel_tech = st.sidebar.selectbox("Technicien", ["Tous"] + techs)
+    # --- KPIs ---
+    t, r = len(df_f), df_f['R'].sum()
+    pr = (r/t*100) if t > 0 else 0
+    pf = 100 - pr
     
-    # Application des filtres
-    df_f = data[data['Date'].dt.year.isin(sel_year)].copy()
-    if sel_tech != "Tous":
-        df_f = df_f[df_f['Tech'] == sel_tech]
-    
-    # --- CALCULS KPIs ---
-    total_interv = len(df_f)
-    repeats = df_f['Is_Repeat'].sum()
-    rdr_rate = (repeats / total_interv * 100) if total_interv > 0 else 0
-    fttr_rate = 100 - rdr_rate
-    
-    # Affichage des métriques
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interventions", f"{total_interv:,}")
-    c2.metric("Taux RDR %", f"{rdr_rate:.1f}%")
-    c3.metric("Taux FTTR %", f"{fttr_rate:.1f}%")
-    c4.metric("Nb Repeats", f"{int(repeats):,}")
+    c1.metric("Interventions", f"{t:,}")
+    c2.metric("Taux RDR %", f"{pr:.1f}%")
+    c3.metric("Taux FTTR %", f"{pf:.1f}%")
+    c4.metric("Nb Repeats", f"{int(r):,}")
 
-    # --- GRAPHIQUE (AGRÉGATION MENSUELLE POUR ÉVITER LES DOUBLONS) ---
-    st.subheader("📈 Évolution Mensuelle de la Qualité")
+    # --- GRAPHIQUE ANTI-ERREUR (AGRÉGATION MENSUELLE) ---
+    st.subheader("📈 Tendance Mensuelle")
+    # On crée une moyenne mensuelle pour éviter les "duplicate keys"
+    df_m = df_f.copy()
+    df_m['Mois'] = df_m['D'].dt.to_period('M').dt.to_timestamp()
+    chart_res = df_m.groupby('Mois')['R'].mean().reset_index()
+    chart_res['RDR %'] = chart_res['R'] * 100
     
-    # On groupe par mois pour que le graphique soit propre et sans erreur
-    chart_data = df_f.groupby(df_f['Date'].dt.to_period('M'))['Is_Repeat'].mean() * 100
-    chart_data.index = chart_data.index.to_timestamp()
-    
-    fig = px.area(chart_data, labels={'value': 'RDR %', 'Date': 'Mois'}, color_discrete_sequence=['#FF4B4B'])
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(px.area(chart_res, x='Mois', y='RDR %'), use_container_width=True)
 
     # --- EXPORT EXCEL ---
     st.divider()
-    st.subheader("📥 Export des données")
-    
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_f.to_excel(writer, index=False, sheet_name='Sheet1')
-    
-    st.download_button(
-        label="Télécharger le rapport filtré en Excel",
-        data=output.getvalue(),
-        file_name=f"Report_Arkeos_{sel_tech}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
+        df_f.to_excel(wr, index=False, sheet_name='Data')
+    st.download_button("📥 Télécharger l'export Excel", out.getvalue(), "Rapport_Arkeos.xlsx")
