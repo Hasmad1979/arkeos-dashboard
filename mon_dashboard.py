@@ -20,6 +20,11 @@ def load():
             if any(x in l for x in ['owner', 'propriétaire', 'tech']): df=df.rename(columns={c:'Tech'})
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
+        
+        # --- CORRECTION DU DOUBLON ---
+        # On garde une seule ligne si tout est identique (même seconde, même SN)
+        df = df.drop_duplicates(subset=['Date', 'SN'])
+        
         df['Tech'] = df['Tech'].fillna('Inconnu').astype(str)
         df['P'] = df.groupby('SN')['Date'].shift(1)
         def rdr_c(r):
@@ -35,7 +40,6 @@ d = load()
 if isinstance(d, str): st.error(d)
 else:
     st.title("📟 Arkeos Dashboard")
-    # Filtres
     yr = sorted(d['Date'].dt.year.unique().tolist(), reverse=True)
     s_y = st.sidebar.multiselect("Année", yr, default=yr[:1])
     tc = sorted(d['Tech'].unique().tolist())
@@ -44,14 +48,6 @@ else:
     df = d[d['Date'].dt.year.isin(s_y)].copy()
     if s_t != "Tous": df = df[df['Tech'] == s_t]
     
-    # KPIs
     t, r = len(df), df['R'].sum()
     pct = (r/t*100) if t > 0 else 0
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Interventions", f"{t}")
-    c2.metric("RDR %", f"{pct:.1f}%")
-    c3.metric("FTTR %", f"{(100-pct):.1f}%")
-    c4.metric("Repeats", f"{r}")
-
-    # Graphique
-    st.subheader("📈 Tendance RDR")
+    c1, c2, c3, c4 = st.
