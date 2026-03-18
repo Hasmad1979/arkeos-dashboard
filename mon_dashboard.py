@@ -47,10 +47,8 @@ def load_data():
         df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
         
         def calc_bus(row):
-            if pd.isnull(row['Date_Prev']): return None
+            if pd.isnull(row['Date_Prev']): 
+                return None
             try:
                 d1, d2 = row['Date_Prev'].date(), row['Date'].date()
-                return int(np.busday_count(d1, d2)) if d1 < d2 else 0
-            except: return 0
-            
-        df['Is_Repeat'] = df.apply(lambda
+                return int(np.busday_count(d1, d2))
