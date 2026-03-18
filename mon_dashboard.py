@@ -4,7 +4,7 @@ import numpy as np
 import os
 import plotly.express as px
 
-# 1. CONFIGURATION ET STYLE (DESIGN ORIGINAL)
+# 1. STYLE ET VISIBILITÉ (Design original de l'image 95BE44)
 st.set_page_config(page_title="Arkeos Technical Support", layout="wide")
 
 st.markdown("""
@@ -14,25 +14,25 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #edf2f7;
         text-align: center;
     }
-    .stAlert { border-radius: 12px; }
     .main-title { font-size: 32px; font-weight: bold; color: #1a365d; }
+    .stAlert { border-radius: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
 @st.cache_data
 def load_data():
-    # NOM EXACT DU FICHIER SUR GITHUB
+    # Utilisation du nom de fichier exact détecté sur votre GitHub
     file_path = "data_dynamics_brute.csv.csv.csv"
     
     if not os.path.exists(file_path):
         return f"Fichier '{file_path}' introuvable."
 
     try:
-        # Lecture flexible (virgule ou point-virgule)
+        # Lecture avec détection automatique (virgule ou point-virgule)
         df = pd.read_csv(file_path, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping des colonnes
+        # Mapping pour Dynamics
         mapping = {
             "Numéro de l'incident": "ID", "Incident Number": "ID",
             "Actifs du client": "SN", "Customer Asset": "SN",
@@ -42,17 +42,8 @@ def load_data():
         }
         df = df.rename(columns=mapping)
         
-        # Nettoyage et conversion
+        # Nettoyage des dates
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.dropna(subset=['SN', 'Date']).sort_values(['SN', 'Date'])
         
-        # Calcul du Repeat (RDR 22j)
-        df['Date_Prev'] = df.groupby('SN')['Date'].shift(1)
-        def calc_bus(row):
-            if pd.isnull(row['Date_Prev']): return None
-            try:
-                d1, d2 = row['Date_Prev'].date(), row['Date'].date()
-                return int(np.busday_count(d1, d2)) if d1 < d2 else 0
-            except: return 0
-            
-        df['Is_Repeat']
+        # Calcul du Repeat (RDR 22 jours ouvrés)
