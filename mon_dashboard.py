@@ -103,7 +103,7 @@ if check_password():
 
 df = pd.read_csv("data_dynamics_brute.csv")
 st.write(df.columns.tolist()) # Cette ligne va afficher les noms exacts des colonnes
-        if not os.path.exists(file_path): 
+if not os.path.exists(file_path): 
             return None
         
         # Lecture flexible pour éviter les erreurs de séparateurs
