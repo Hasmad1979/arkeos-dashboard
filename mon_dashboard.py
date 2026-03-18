@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import plotly.express as px
 
 st.set_page_config(page_title="Arkeos", layout="wide")
 
@@ -14,13 +13,13 @@ def load_data():
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Mapping automatique
+        # Détection automatique Colonnes (ID, SN, Date)
         m = {"Numéro de l'incident": "ID", "Incident Number": "ID",
              "Actifs du client": "SN", "Customer Asset": "SN",
-             "Créé le": "Date", "Created On": "Date", "Date": "Date"}
+             "Créé le": "Date", "Created On": "Date"}
         df = df.rename(columns=m)
 
-        # Force la détection de la date si le mapping échoue
+        # Secours pour la colonne Date
         if 'Date' not in df.columns:
             for c in df.columns:
                 if any(x in c.lower() for x in ['date', 'créé', 'created']):
@@ -29,7 +28,7 @@ def load_data():
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
         
-        # Calcul RDR
+        # Calcul RDR 22j
         df['P'] = df.groupby('SN')['Date'].shift(1)
         def rdr(r):
             try:
@@ -49,4 +48,7 @@ else:
     c1, c2, c3 = st.columns(3)
     c1.metric("Interventions", f"{t}")
     c2.metric("Taux RDR", f"{(r/t*100):.1f}%" if t>0 else "0%")
-    c3.metric("Nb
+    c3.metric("Nb Repeats", f"{r}")
+    
+    st.subheader("📈 Tendance")
+    d['M'] = d['Date'].
