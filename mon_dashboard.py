@@ -81,4 +81,4 @@ if df_raw is not None:
     sel_years = st.sidebar.multiselect("Années", years, default=years)
     
     # Mois
-    df_raw['Mois_Num'] = df_raw['Date'].
+    df_raw['Mois_Num'] = df_raw['Date'].dt.month
