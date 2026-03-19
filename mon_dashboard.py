@@ -26,7 +26,7 @@ def load_data():
     df['Tech'] = df.get('Tech', 'Inconnu').fillna('Inconnu').astype(str)
     df['Client'] = df.get('Client', 'N/A').fillna('N/A').astype(str)
     df['Prev'] = df.groupby('SN')['Date'].shift(1)
-    df['R'] = (df['Date'] - df['Prev']).dt.days.apply(lambda x: 1 if (0 <= x <= 22) else 0)
+    df['R'] = (df['Date']-df['Prev']).dt.days.apply(lambda x: 1 if (0<=x<=22) else 0)
     return df
 
 df = load_data()
@@ -35,8 +35,9 @@ if df.empty:
     st.error("Fichier CSV introuvable ou colonnes 'Date'/'SN' absentes.")
 else:
     st.title("📟 Arkeos Technical Dashboard")
-    years = sorted(df['Date'].dt.year.unique().tolist(), reverse=True)
-    sel_yr = st.sidebar.multiselect("Années", years, default=years[:1])
-    noms_mois = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
-    sel_mo = st.sidebar.multiselect("Mois", noms_mois, default=noms_mois)
-    m_map = {n: i+1 for
+    # Filtres ultra-courts pour éviter les coupures de ligne
+    Y = sorted(df['Date'].dt.year.unique().tolist(), reverse=True)
+    sY = st.sidebar.multiselect("Années", Y, default=Y[:1])
+    M_N = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+    sM = st.sidebar.multiselect("Mois", M_N, default=M_N)
+    #
