@@ -8,12 +8,12 @@ from io import BytesIO
 st.set_page_config(layout="wide", page_title="Arkeos Dash")
 
 @st.cache_data
-def load_data_v4():
+def load_data_final():
     f = "data_dynamics_brute.csv.csv.csv"
     if not os.path.exists(f): return pd.DataFrame()
     df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
     
-    # 1. Détection des colonnes
+    # Détection des colonnes
     c_dt, c_sn, c_tk, c_cl, c_dr = None, None, None, None, None
     for c in df.columns:
         l = str(c).lower()
@@ -23,7 +23,6 @@ def load_data_v4():
         elif not c_cl and any(x in l for x in ["client", "compte"]): c_cl = c
         elif not c_dr and any(x in l for x in ["durée", "duration", "temps"]): c_dr = c
 
-    # 2. Renommage et Nettoyage
     renames = {c_dt: "Date", c_sn: "SN", c_tk: "Tech", c_cl: "Client", c_dr: "Duree"}
     df = df.rename(columns={k: v for k, v in renames.items() if k})
     
@@ -32,6 +31,6 @@ def load_data_v4():
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date", "SN"]).sort_values("Date")
     
-    # Gestion Durée / MTTR
-    if "Duree" not in df.columns: df["Duree"] = 120
-    else: df["Duree"] = pd.to_numeric(df["Duree"], errors="coerce").fillna(
+    # Correction de la ligne 37 (version condensée pour éviter les erreurs)
+    if "Duree" not in df.columns:
+        df["Duree"] =
