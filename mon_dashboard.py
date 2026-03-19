@@ -13,25 +13,25 @@ def load_data_v4():
     if not os.path.exists(f): return pd.DataFrame()
     df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
     
-    col_date, col_sn, col_tech, col_client, col_duree = None, None, None, None, None
+    # 1. Détection des colonnes
+    c_dt, c_sn, c_tk, c_cl, c_dr = None, None, None, None, None
     for c in df.columns:
         l = str(c).lower()
-        if not col_date and any(x in l for x in ['date', 'créé']): col_date = c
-        elif not col_sn and any(x in l for x in ['actif', 'asset', 'sn', 'série']): col_sn = c
-        elif not col_tech and any(x in l for x in ['owner', 'propriétaire', 'tech']): col_tech = c
-        elif not col_client and any(x in l for x in ['client', 'compte']): col_client = c
-        elif not col_duree and any(x in l for x in ['durée', 'duration', 'temps']): col_duree = c
+        if not c_dt and any(x in l for x in ["date", "créé"]): c_dt = c
+        elif not c_sn and any(x in l for x in ["actif", "asset", "sn", "série"]): c_sn = c
+        elif not c_tk and any(x in l for x in ["owner", "propriétaire", "tech"]): c_tk = c
+        elif not c_cl and any(x in l for x in ["client", "compte"]): c_cl = c
+        elif not c_dr and any(x in l for x in ["durée", "duration", "temps"]): c_dr = c
 
-    rename_dict = {col_date: 'Date', col_sn: 'SN', col_tech: 'Tech', col_client: 'Client', col_duree: 'Duree'}
-    df = df.rename(columns={k: v for k, v in rename_dict.items() if k})
+    # 2. Renommage et Nettoyage
+    renames = {c_dt: "Date", c_sn: "SN", c_tk: "Tech", c_cl: "Client", c_dr: "Duree"}
+    df = df.rename(columns={k: v for k, v in renames.items() if k})
     
-    if 'Date' not in df.columns or 'SN' not in df.columns: return pd.DataFrame()
+    if "Date" not in df.columns or "SN" not in df.columns: return pd.DataFrame()
     
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date", "SN"]).sort_values("Date")
     
-    if 'Duree' not in df.columns: df['Duree'] = 120
-    else: df['Duree'] = pd.to_numeric(df['Duree'], errors='coerce').fillna(120)
-
-    df = df.drop_duplicates(subset=['SN', 'Date']).reset_index(drop=True)
-    df['Prev
+    # Gestion Durée / MTTR
+    if "Duree" not in df.columns: df["Duree"] = 120
+    else: df["Duree"] = pd.to_numeric(df["Duree"], errors="coerce").fillna(
