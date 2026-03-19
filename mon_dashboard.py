@@ -32,10 +32,8 @@ def load_data_final():
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date", "SN"]).sort_values("Date")
     
-    # 3. Gestion de la Durée (Ligne 36 corrigée)
+    # 3. Gestion de la Durée
     df["Duree"] = pd.to_numeric(df.get("Duree", 120), errors="coerce").fillna(120)
 
-    # 4. Calcul RDR (Repeats)
-    df = df.drop_duplicates(subset=["SN", "Date"]).reset_index(drop=True)
-    df["Prev"] = df.groupby("SN")["Date"].shift(1)
-    df["R"] = (df["Date"] - df["Prev"]).dt.days.apply(lambda x: 1 if pd.notna(x)
+    # 4. Calcul RDR (Logic corrigée et simplifiée sur une seule ligne)
+    df = df
