@@ -96,7 +96,7 @@ else:
         st.plotly_chart(px.bar(top_cli, x='Repeats', y='Client', orientation='h', color_discrete_sequence=['#3b82f6']), use_container_width=True)
 
     # --- TENDANCE ---
-    st.subheader("📈 Tendance")
+    st.subheader("📈 Trend RDR")
     if not final_df.empty:
         final_df['Mois_Label'] = final_df['Date'].dt.strftime('%Y-%m')
         chart_data = final_df.groupby('Mois_Label')['R'].mean().reset_index()
