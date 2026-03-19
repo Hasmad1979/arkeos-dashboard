@@ -31,36 +31,11 @@ def load_data_v4():
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
     
-    # Simulation MTTR si la colonne Durée n'existe pas (on prend 120 min par défaut pour l'exemple)
-    if 'Duree' not in df.columns:
-        df['Duree'] = 120 
-    else:
-        df['Duree'] = pd.to_numeric(df['Duree'], errors='coerce').fillna(0)
+    # Valeur par défaut pour la durée si absente (ex: 120 min)
+    if 'Duree' not in df.columns: df['Duree'] = 120
+    else: df['Duree'] = pd.to_numeric(df['Duree'], errors='coerce').fillna(120)
 
-    # Calcul RDR
+    # Calcul RDR (Repeats)
     df = df.drop_duplicates(subset=['SN', 'Date']).reset_index(drop=True)
     df['Prev'] = df.groupby('SN')['Date'].shift(1)
-    df['R'] = (df['Date'] - df['Prev']).dt.days.apply(lambda x: 1 if pd.notna(x) and 0 <= x <= 22 else 0)
-    
-    return df
-
-df = load_data_v4()
-
-if df.empty:
-    st.error("Données introuvables.")
-else:
-    st.title("📟 Arkeos Technical Dashboard")
-    
-    # --- FILTRES ---
-    years = sorted(df['Date'].dt.year.unique().tolist(), reverse=True)
-    sel_yr = st.sidebar.multiselect("Années", years, default=years[:1])
-    noms_mois = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-    sel_mo_names = st.sidebar.multiselect("Mois", noms_mois, default=noms_mois)
-    mapping_mois = {nom: i+1 for i, nom in enumerate(noms_mois)}
-    sel_mo_nums = [mapping_mois[m] for m in sel_mo_names]
-    techs = sorted(df['Tech'].unique().tolist() if 'Tech' in df.columns else [])
-    sel_tk = st.sidebar.selectbox("Technicien", ["Tous"] + techs)
-    
-    mask = (df['Date'].dt.year.isin(sel_yr)) & (df['Date'].dt.month.isin(sel_mo_nums))
-    if sel_tk != "Tous": mask = mask & (df['Tech'] == sel_tk)
-    final_df = df[mask
+    df
