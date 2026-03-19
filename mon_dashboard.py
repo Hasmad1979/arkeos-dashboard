@@ -8,31 +8,33 @@ from io import BytesIO
 st.set_page_config(layout="wide", page_title="Arkeos Dash")
 
 @st.cache_data
-def load_data_v2():
+def load_data_final():
     f = "data_dynamics_brute.csv.csv.csv"
     if not os.path.exists(f): return pd.DataFrame()
     df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
     
-    col_date, col_sn, col_tech, col_client, col_duree = None, None, None, None, None
+    # 1. Détection des colonnes
+    c_dt, c_sn, c_tk, c_cl, c_dr = None, None, None, None, None
     for c in df.columns:
         l = str(c).lower()
-        if not col_date and any(x in l for x in ['date', 'créé']): col_date = c
-        elif not col_sn and any(x in l for x in ['actif', 'asset', 'sn', 'série']): col_sn = c
-        elif not col_tech and any(x in l for x in ['owner', 'propriétaire', 'tech']): col_tech = c
-        elif not col_client and any(x in l for x in ['client', 'compte', 'customer']): col_client = c
-        elif not col_duree and any(x in l for x in ['durée', 'duration', 'temps']): col_duree = c
+        if not c_dt and any(x in l for x in ["date", "créé"]): c_dt = c
+        elif not c_sn and any(x in l for x in ["actif", "asset", "sn", "série"]): c_sn = c
+        elif not c_tk and any(x in l for x in ["owner", "propriétaire", "tech"]): c_tk = c
+        elif not c_cl and any(x in l for x in ["client", "compte"]): c_cl = c
+        elif not c_dr and any(x in l for x in ["durée", "duration", "temps"]): c_dr = c
 
-    rename_dict = {}
-    if col_date: rename_dict[col_date] = 'Date'
-    if col_sn: rename_dict[col_sn] = 'SN'
-    if col_tech: rename_dict[col_tech] = 'Tech'
-    if col_client: rename_dict[col_client] = 'Client'
-    if col_duree: rename_dict[col_duree] = 'Duree'
+    # 2. Nettoyage et Renommage
+    renames = {c_dt: "Date", c_sn: "SN", c_tk: "Tech", c_cl: "Client", c_dr: "Duree"}
+    df = df.rename(columns={k: v for k, v in renames.items() if k})
     
-    df = df.rename(columns=rename_dict)
+    if "Date" not in df.columns or "SN" not in df.columns: return pd.DataFrame()
     
-    if 'Date' not in df.columns or 'SN' not in df.columns: return pd.DataFrame()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date", "SN"]).sort_values("Date")
     
-    df['Tech'] = df.get('Tech', pd.Series(['Inconnu']*len(df))).fillna('Inconnu').astype(str)
-    df['Client'] = df.get('Client', pd.Series(['N/A']*len(df))).fillna('N/A').astype(str)
-    df['Date'] = pd.
+    # Gestion MTTR (Durée)
+    df["Duree"] = pd.to_numeric(df.get("Duree", 120), errors="coerce").fillna(120)
+
+    # 3. Calcul RDR (Repeats)
+    df = df.drop_duplicates(subset=["SN", "Date"]).reset_index(drop=True)
+    df["Prev"] = df.groupby("SN")["Date"].shift(1)
