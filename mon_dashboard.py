@@ -27,10 +27,9 @@ def load_data():
     f = "data_dynamics_brute.csv.csv.csv"
     try:
         df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
-    except Exception:
+    except:
         return pd.DataFrame()
 
-    # Mapping intelligent des colonnes
     col_map = {
         'date': 'Date', 'créé': 'Date',
         'actif': 'SN', 'asset': 'SN', 'sn': 'SN',
@@ -51,8 +50,8 @@ def load_data():
     if 'Date' not in df.columns or 'SN' not in df.columns:
         return pd.DataFrame()
 
-    # Nettoyage
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
-    df['Tech'] = df.get('Tech', 'Inconnu').fillna('Inconnu').astype(str)
-    df['Client'] = df.get('Client', 'N/A').fillna('N/A
+    
+    # Sécurisation des colonnes Tech et Client
+    if 'Tech' not in
