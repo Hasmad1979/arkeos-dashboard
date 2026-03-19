@@ -10,35 +10,45 @@ st.set_page_config(layout="wide", page_title="Arkeos Dash")
 @st.cache_data
 def load_data_v2():
     f = "data_dynamics_brute.csv.csv.csv"
-    if not os.path.exists(f): return pd.DataFrame()
+    if not os.path.exists(f): 
+        return pd.DataFrame()
     
+    # 1. Lecture
     df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
     
+    # 2. LA VRAIE SOLUTION : On cherche les colonnes UNE SEULE FOIS
     col_date, col_sn, col_tech = None, None, None
+    
     for c in df.columns:
         l = str(c).lower()
         if not col_date and any(x in l for x in ['date', 'créé']): col_date = c
         elif not col_sn and any(x in l for x in ['actif', 'asset', 'sn', 'série']): col_sn = c
         elif not col_tech and any(x in l for x in ['owner', 'propriétaire', 'tech']): col_tech = c
 
+    # On renomme proprement sans créer de doublons
     rename_dict = {}
     if col_date: rename_dict[col_date] = 'Date'
     if col_sn: rename_dict[col_sn] = 'SN'
     if col_tech: rename_dict[col_tech] = 'Tech'
     
     df = df.rename(columns=rename_dict)
+    
+    # 3. ON SUPPRIME TOUT LE RESTE POUR NE PAS FAIRE CRASHER STREAMLIT
     cols_to_keep = [c for c in ['Date', 'SN', 'Tech'] if c in df.columns]
     df = df[cols_to_keep].copy()
     
+    # Sécurité au cas où il manque une colonne
     if 'Date' not in df.columns or 'SN' not in df.columns:
-        return pd.DataFrame()
+        return pd.DataFrame() # Retourne un df vide au lieu de crasher
         
     df['Tech'] = df.get('Tech', pd.Series(['Inconnu']*len(df))).fillna('Inconnu').astype(str)
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df = df.dropna(subset=['Date', 'SN'])
     
+    # Tri et nettoyage final
     df = df.sort_values('Date').drop_duplicates(subset=['SN', 'Date']).reset_index(drop=True)
     
+    # 4. Calcul RDR
     df['Prev'] = df.groupby('SN')['Date'].shift(1)
     df['R'] = (df['Date'] - df['Prev']).dt.days.apply(lambda x: 1 if pd.notna(x) and 0 <= x <= 22 else 0)
     
@@ -48,22 +58,22 @@ def load_data_v2():
 df = load_data_v2()
 
 if df.empty:
-    st.error("Impossible de trouver les données. Vérifie le fichier CSV.")
+    st.error("Impossible de trouver les colonnes Date et SN dans le fichier. Vérifiez le nom des colonnes du CSV.")
 else:
     st.title("📟 Arkeos Technical Dashboard")
     
-    # --- FILTRES SIDEBAR ---
     st.sidebar.header("Filtres")
     
     # 1. Filtre Années
-    years = sorted(df['Date'].dt.year.unique().tolist(), reverse=True)
-    sel_yr = st.sidebar.multiselect("Années", years, default=years[:1])
+    years = sorted(df['Date'].dt.year.dropna().unique().astype(int).tolist(), reverse=True)
+    sel_yr = st.sidebar.multiselect("Années", years, default=years[:1] if years else [])
     
-    # 2. Filtre Mois (Dynamique selon l'année)
-    # On crée un dictionnaire pour mapper le nom du mois à son numéro
+    # 2. Filtre Mois
     months_choices = {
         1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 
         5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août", 
         9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
     }
-    sel_mo_names = st.sidebar.multiselect("Mois",
+    
+    # Le menu déroulant des mois, bien formaté pour éviter les erreurs de parenthèses
+    sel_mo_names = st.sidebar.multiselect(
