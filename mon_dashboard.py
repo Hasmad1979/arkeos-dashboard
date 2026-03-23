@@ -34,6 +34,7 @@ def load_data_v2():
     df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
     df = df.drop_duplicates(subset=['SN', 'Date']).reset_index(drop=True)
     df['Prev'] = df.groupby('SN')['Date'].shift(1)
+    # Calcul du repeat : intervalle entre 0 et 22 jours
     df['R'] = (df['Date'] - df['Prev']).dt.days.apply(lambda x: 1 if pd.notna(x) and 0 <= x <= 22 else 0)
     return df
 
@@ -64,20 +65,14 @@ else:
     rdr = (reps / total * 100) if total > 0 else 0
     fttr = 100 - rdr
 
-    # --- AFFICHAGE DES MÉTRIQUES AVEC COULEURS ---
+    # --- AFFICHAGE DES MÉTRIQUES ---
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
-
     c1.metric("Interv. Totales", f"{total}")
-
-    # RDR % : Rouge si > 20%
-    color_rdr = "#ef4444" if rdr > 20 else "#31333F" # Rouge ou Noir par défaut
+    color_rdr = "#ef4444" if rdr > 20 else "#31333F"
     c2.markdown(f"**RDR %** \n <h2 style='color:{color_rdr}; font-weight:bold;'>{rdr:.1f}%</h2>", unsafe_allow_html=True)
-
-    # FTTR % : Vert si > 60%
-    color_fttr = "#22c55e" if fttr > 60 else "#31333F" # Vert ou Noir par défaut
+    color_fttr = "#22c55e" if fttr > 60 else "#31333F"
     c3.markdown(f"**FTTR %** \n <h2 style='color:{color_fttr}; font-weight:bold;'>{fttr:.1f}%</h2>", unsafe_allow_html=True)
-
     c4.metric("Nb de Repeats", f"{int(reps)}")
     st.markdown("---")
 
@@ -103,7 +98,19 @@ else:
         chart_data['RDR %'] = chart_data['R'] * 100
         st.plotly_chart(px.line(chart_data, x='Mois_Label', y='RDR %', markers=True), use_container_width=True)
 
-        out = BytesIO()
-        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+        # --- SECTION EXPORT (MODIFIÉE) ---
+        st.sidebar.markdown("### 📊 Exports")
+        
+        # 1. Export COMPLET
+        out_all = BytesIO()
+        with pd.ExcelWriter(out_all, engine='xlsxwriter') as writer:
             final_df.to_excel(writer, index=False)
-        st.sidebar.download_button("📥 Excel", out.getvalue(), "Export.xlsx", use_container_width=True)
+        st.sidebar.download_button("📥 Excel (All)", out_all.getvalue(), "Export_Complet.xlsx", use_container_width=True)
+
+        # 2. Export REPEATS UNIQUEMENT (Les 17 cas)
+        df_only_repeats = final_df[final_df['R'] == 1].copy()
+        if not df_only_repeats.empty:
+            out_reps = BytesIO()
+            with pd.ExcelWriter(out_reps, engine='xlsxwriter') as writer:
+                df_only_repeats.to_excel(writer, index=False)
+            st.sidebar.download_button("🚨 Excel (Repeats Only)", out_reps.getvalue(), "Export_Repeats.xlsx", use_container_width=True, type="primary")
