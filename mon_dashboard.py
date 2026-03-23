@@ -5,14 +5,23 @@ import os
 import plotly.express as px
 from io import BytesIO
 
+# Configuration de la page
 st.set_page_config(layout="wide", page_title="Arkeos Dash")
 
 @st.cache_data
 def load_data_v2():
     f = "data_dynamics_brute.csv.csv.csv"
-    if not os.path.exists(f): return pd.DataFrame()
-    df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
+    if not os.path.exists(f):
+        return pd.DataFrame() # Retourne vide si le fichier n'existe pas
     
+    try:
+        # Lecture du fichier
+        df = pd.read_csv(f, sep=None, engine='python', encoding_errors='ignore')
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture du fichier : {e}")
+        return pd.DataFrame()
+
+    # Détection automatique des colonnes
     col_date, col_sn, col_tech, col_client, col_wo = None, None, None, None, None
     for c in df.columns:
         l = str(c).lower()
@@ -22,6 +31,7 @@ def load_data_v2():
         elif not col_client and any(x in l for x in ['client', 'compte', 'customer']): col_client = c
         elif not col_wo and any(x in l for x in ['ordre', 'wo', 'work order', 'numéro', 'id']): col_wo = c
 
+    # Renommage
     rename_dict = {}
     if col_date: rename_dict[col_date] = 'Date'
     if col_sn: rename_dict[col_sn] = 'SN'
@@ -30,24 +40,12 @@ def load_data_v2():
     if col_wo: rename_dict[col_wo] = 'WO'
 
     df = df.rename(columns=rename_dict)
+    
+    # Vérification des colonnes vitales
+    if 'Date' not in df.columns or 'SN' not in df.columns:
+        st.warning("Colonnes 'Date' ou 'SN' introuvables dans le fichier.")
+        return pd.DataFrame()
+
+    # Garder uniquement ce qui est nécessaire
     cols_to_keep = [c for c in ['Date', 'SN', 'Tech', 'Client', 'WO'] if c in df.columns]
     df = df[cols_to_keep].copy()
-    
-    # --- LA LIGNE CORRIGÉE ICI ---
-    if 'Date' not in df.columns or 'SN' not in df.columns:
-        return pd.DataFrame()
-    
-    df['Tech'] = df.get('Tech', pd.Series(['Inconnu']*len(df))).fillna('Inconnu').astype(str)
-    df['Client'] = df.get('Client', pd.Series(['N/A']*len(df))).fillna('N/A').astype(str)
-    df['WO'] = df.get('WO', pd.Series(['-']*len(df))).fillna('-').astype(str)
-    
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.dropna(subset=['Date', 'SN']).sort_values('Date')
-    df = df.drop_duplicates(subset=['SN', 'Date']).reset_index(drop=True)
-    
-    df['Prev_Date'] = df.groupby('SN')['Date'].shift(1)
-    df['Prev_WO'] = df.groupby('SN')['WO'].shift(1)
-    df['R'] = (df['Date'] - df['Prev_Date']).dt.days.apply(lambda x: 1 if pd.notna(x) and 0 <= x <= 22 else 0)
-    return df
-
-# ... (reste du code identique)
